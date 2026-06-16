@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Users, Globe, DollarSign, Plus, Search, Mail, CheckCircle2, Clock, Pencil,
-  Trash2, X, Copy, Eye, LayoutDashboard, RefreshCw,
+  Trash2, X, Copy, Eye, LayoutDashboard, RefreshCw, Download,
   Image as ImageIcon, ArrowRight, Lock, ExternalLink, FileText, Smartphone, LogOut, Send, MapPin,
   Mic, Square, Activity, Calendar, Bell, StickyNote, UserPlus
 } from "lucide-react";
@@ -10,6 +10,7 @@ import { storage } from "./supabase";
 const K_FOUNDERS = "cv-founders-v3";
 const K_ADMIN = "cv-admin-v1";
 const K_PLACES = "cv-places-v1";
+const K_HISTORY = "cv-founders-history-v1";
 const K_IMG = (id) => `cv-img-${id}`;
 const K_NOTE = (id) => `cv-note-${id}`;
 
@@ -215,15 +216,40 @@ export default function CuriousDashboard() {
     return () => { cancelled = true; };
   }, [view, founders]);
   const persistFounders = async (next) => { setFounders(next); await sSet(K_FOUNDERS, next); };
+  // Keep a rolling set of the last 20 saves, so any bad write can be rolled back.
+  const snapshotHistory = async (next) => {
+    try {
+      const hist = await sGet(K_HISTORY, []);
+      const list = Array.isArray(hist) ? hist : [];
+      const entry = { ts: new Date().toISOString(), count: next.length, founders: next };
+      await sSet(K_HISTORY, [entry, ...list].slice(0, 20));
+    } catch (e) { console.error("snapshot failed (non-fatal)", e); }
+  };
   // Read-modify-write against the LATEST server data, so two devices saving at once don't overwrite each other.
   const mutateFounders = async (updater) => {
     const latest = await sGet(K_FOUNDERS, []);
     const next = updater(Array.isArray(latest) ? latest : []);
     setFounders(next);
     await sSet(K_FOUNDERS, next);
+    await snapshotHistory(next);
     return next;
   };
   const persistPlaces = async (next) => { setPlaces(next); await sSet(K_PLACES, next); };
+  // One-tap offline backup: downloads the current founders + places as a JSON file.
+  const downloadBackup = async () => {
+    try {
+      const f = await sGet(K_FOUNDERS, []);
+      const p = await sGet(K_PLACES, []);
+      const payload = { exportedAt: new Date().toISOString(), founders: f, places: p };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `curious-house-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error("backup failed", e); alert("Backup failed — check your connection and try again."); }
+  };
 
   const addPlace = async () => {
     const name = newPlace.trim();
@@ -283,7 +309,11 @@ export default function CuriousDashboard() {
 
   const founderLogin = async () => {
     const email = cleanEmail(loginEmail);
-    const f = founders.find(x => cleanEmail(x.email) === email);
+    // Pull the latest data so a just-approved founder can log in without refreshing.
+    const latest = await sGet(K_FOUNDERS, []);
+    const list = Array.isArray(latest) ? latest : [];
+    setFounders(list);
+    const f = list.find(x => cleanEmail(x.email) === email);
     if (!f || !f.password || f.password !== loginPass) { setLoginError("Email or password not recognized. Check with Sood."); return; }
     if (f.approved === false) { setLoginError("Your request is still pending approval. We'll be in touch once you're in."); return; }
     setLoginError("");
@@ -421,6 +451,22 @@ export default function CuriousDashboard() {
   };
   const copyText = async (text, mark) => { try { await navigator.clipboard.writeText(text); setCopied(mark); setTimeout(() => setCopied(""), 1800); } catch {} };
   const goToFounder = (f) => { setSearch(f.startupName || f.founderName || ""); setTab("founders"); };
+
+  // Open a pre-filled email (BCC, so founders don't see each other) to a group of founders.
+  const emailGroup = (list, kind) => {
+    const emails = (list || []).filter(f => f.email).map(f => f.email);
+    if (!emails.length) { alert("No founder emails to send to."); return; }
+    const subject = encodeURIComponent(
+      kind === "nudge" ? "You're approved — finish your Curious Ventures profile"
+                       : "Your Curious Ventures founder profile"
+    );
+    const body = encodeURIComponent(
+      kind === "nudge"
+        ? "Hi,\n\nYou're approved on the Curious Ventures founder tracker. Log in at house.curiousventures.xyz with the email and password you chose, then add your startup details. You can post updates anytime after.\n\nThe updates you post are what I share with the LPs and investors in my network.\n\n- Sood"
+        : "Hi,\n\nQuick note from Curious Ventures. Log in at house.curiousventures.xyz to keep your startup details current and post any recent milestones - that's what I pass along to the LPs and investors in my network.\n\n- Sood"
+    );
+    window.location.href = `mailto:?bcc=${emails.join(",")}&subject=${subject}&body=${body}`;
+  };
 
   // ---- Admin private notes & check-ins ----
   const openNote = async (f) => {
@@ -1019,7 +1065,10 @@ export default function CuriousDashboard() {
           <CheckCircle2 size={40} className="mx-auto" style={{ color: RED }} />
           <h2 className="text-xl font-bold mt-4">Request sent.</h2>
           <p className="text-sm text-neutral-500 mt-2">Thanks — Sood will review and approve you. Once you're in, come back and log in with the email and password you just chose to finish your profile.</p>
-          <button onClick={() => setView("landing")} className="mt-6 px-5 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: BLACK }}>Done</button>
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button onClick={() => { setView("founderLogin"); setLoginError(""); }} className="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>Log in</button>
+            <button onClick={() => setView("landing")} className="px-5 py-2.5 rounded-md text-sm font-semibold border border-neutral-300 hover:border-neutral-900">Done</button>
+          </div>
         </div>
       </div>
     );
@@ -1104,6 +1153,7 @@ export default function CuriousDashboard() {
             <TabBtn id="add" icon={Plus}>Add founder</TabBtn>
             <TabBtn id="places" icon={MapPin}>Places</TabBtn>
             <TabBtn id="digest" icon={Mail}>Digest</TabBtn>
+            <button onClick={downloadBackup} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Download backup"><Download size={14} /></button>
             <button onClick={refetchData} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Refresh data"><RefreshCw size={14} /></button>
             <button onClick={() => setView("landing")} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Lock"><Lock size={14} /></button>
           </nav>
@@ -1281,7 +1331,14 @@ export default function CuriousDashboard() {
             {/* Attention: awaiting onboarding */}
             {awaitingOnboarding.length > 0 && (
               <div className="bg-white border rounded-lg p-5 mb-4" style={{ borderColor: "#F4C7CB" }}>
-                <h3 className="text-sm font-semibold flex items-center gap-2"><UserPlus size={15} style={{ color: RED }} /> Invited, not onboarded yet ({awaitingOnboarding.length})</h3>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="text-sm font-semibold flex items-center gap-2"><UserPlus size={15} style={{ color: RED }} /> Invited, not onboarded yet ({awaitingOnboarding.length})</h3>
+                  {awaitingOnboarding.some(f => f.email) && (
+                    <button onClick={() => emailGroup(awaitingOnboarding, "nudge")} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-neutral-200 hover:border-neutral-900">
+                      <Mail size={12} /> Email all
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-neutral-500 mt-1 mb-3">They have a login but haven't filled in their details. Nudge them.</p>
                 <div className="space-y-2">
                   {awaitingOnboarding.map(f => {
@@ -1359,10 +1416,17 @@ export default function CuriousDashboard() {
           <div>
             <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
               <h2 className="text-xl font-bold tracking-tight">All founders ({founders.length})</h2>
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search startup, founder, email…"
-                  className="pl-9 pr-3 py-2 bg-white border border-neutral-200 rounded-md text-sm w-64 focus:outline-none focus:border-neutral-900" />
+              <div className="flex items-center gap-2">
+                {activeFounders.some(f => f.email) && (
+                  <button onClick={() => emailGroup(activeFounders, "general")} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900">
+                    <Mail size={14} /> Email approved
+                  </button>
+                )}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search startup, founder, email…"
+                    className="pl-9 pr-3 py-2 bg-white border border-neutral-200 rounded-md text-sm w-64 focus:outline-none focus:border-neutral-900" />
+                </div>
               </div>
             </div>
             {filtered.length === 0 ? (
