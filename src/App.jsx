@@ -30,6 +30,7 @@ const ROUND_TYPES = ["Angel", "Pre-seed", "Seed", "Series A", "Bridge", "Grant",
 const INSTRUMENTS = ["Equity", "SAFE", "SAFT", "Convertible note", "Other"];
 
 const DEFAULT_PLACES = ["Network School (Forest City)", "Bali"];
+const ADMIN_PASSCODE = "CuriousVentures2026";
 
 const EMPTY_FOUNDER = {
   founderName: "", startupName: "", oneLiner: "", networkState: "",
@@ -177,11 +178,28 @@ export default function CuriousDashboard() {
   const loadAll = async () => {
     setLoading(true);
     let [f, a, p] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_ADMIN, null), sGet(K_PLACES, null)]);
-    if (!a) { a = { passcode: "1234", createdOn: new Date().toISOString() }; await sSet(K_ADMIN, a); }
+    if (!a) { a = { passcode: ADMIN_PASSCODE, createdOn: new Date().toISOString() }; await sSet(K_ADMIN, a); }
     if (!p) { p = [...DEFAULT_PLACES]; await sSet(K_PLACES, p); }
     setFounders(f); setAdminCfg(a); setPlaces(p); setLoading(false);
   };
   useEffect(() => { loadAll(); }, []);
+
+  // Re-fetch latest data from Supabase (so changes from other devices appear)
+  const refetchData = async () => {
+    const [f, p] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_PLACES, [])]);
+    setFounders(f);
+    if (Array.isArray(p)) setPlaces(p);
+  };
+
+  // While in the admin dashboard, keep data fresh: on entry, on window focus, and on a light timer.
+  useEffect(() => {
+    if (view !== "admin") return;
+    refetchData();
+    const onFocus = () => refetchData();
+    window.addEventListener("focus", onFocus);
+    const iv = setInterval(refetchData, 15000);
+    return () => { window.removeEventListener("focus", onFocus); clearInterval(iv); };
+  }, [view]);
 
   // Preload founder images for admin cards
   useEffect(() => {
@@ -197,6 +215,14 @@ export default function CuriousDashboard() {
     return () => { cancelled = true; };
   }, [view, founders]);
   const persistFounders = async (next) => { setFounders(next); await sSet(K_FOUNDERS, next); };
+  // Read-modify-write against the LATEST server data, so two devices saving at once don't overwrite each other.
+  const mutateFounders = async (updater) => {
+    const latest = await sGet(K_FOUNDERS, []);
+    const next = updater(Array.isArray(latest) ? latest : []);
+    setFounders(next);
+    await sSet(K_FOUNDERS, next);
+    return next;
+  };
   const persistPlaces = async (next) => { setPlaces(next); await sSet(K_PLACES, next); };
 
   const addPlace = async () => {
@@ -290,17 +316,17 @@ export default function CuriousDashboard() {
       id: uid(), addedOn: now, lastUpdated: now,
       approved: false, profileComplete: false, requestedOn: now, updates: []
     };
-    await persistFounders([entry, ...founders]);
+    await mutateFounders(prev => [entry, ...prev]);
     setReqForm({ founderName: "", startupName: "", email: "", password: "", networkState: "", metAt: "", note: "" });
     setView("requestSent");
   };
 
   const approveRequest = async (id) => {
     const now = new Date().toISOString();
-    await persistFounders(founders.map(f => f.id === id ? { ...f, approved: true, approvedOn: now } : f));
+    await mutateFounders(prev => prev.map(f => f.id === id ? { ...f, approved: true, approvedOn: now } : f));
   };
   const declineRequest = async (id) => {
-    await persistFounders(founders.filter(f => f.id !== id));
+    await mutateFounders(prev => prev.filter(f => f.id !== id));
     setConfirmDelete(null);
   };
   const founderLogout = () => { setMe(null); setLoginEmail(""); setLoginPass(""); setForm({ ...EMPTY_FOUNDER }); setFormImages([]); setEditingProfile(false); setConfirmPost(false); setView("landing"); };
@@ -319,7 +345,7 @@ export default function CuriousDashboard() {
         ? [{ text: form.latestUpdate.trim(), date: now, by: "founder" }, ...(me.updates || [])]
         : (me.updates || [])
     };
-    await persistFounders(founders.map(f => f.id === me.id ? updated : f));
+    await mutateFounders(prev => prev.map(f => f.id === me.id ? updated : f));
     if (formImages.length > 0) await sSet(K_IMG(me.id), formImages);
     setMe(updated); setMyImages(formImages); setSaving(false); setView("founderHome");
   };
@@ -329,7 +355,7 @@ export default function CuriousDashboard() {
     if (!text || !me) return;
     const now = new Date().toISOString();
     const updated = { ...me, latestUpdate: text, lastUpdated: now, updates: [{ text, date: now, by: "founder" }, ...(me.updates || [])] };
-    await persistFounders(founders.map(f => f.id === me.id ? updated : f));
+    await mutateFounders(prev => prev.map(f => f.id === me.id ? updated : f));
     setMe(updated); setMyUpdate(""); setConfirmPost(false); setMySaved(true); setTimeout(() => setMySaved(false), 2500);
   };
 
@@ -342,7 +368,7 @@ export default function CuriousDashboard() {
     setSaving(true);
     const now = new Date().toISOString();
     const updated = { ...me, ...form, email: me.email, password: me.password, profileComplete: true, imageCount: formImages.length, lastUpdated: now };
-    await persistFounders(founders.map(f => f.id === me.id ? updated : f));
+    await mutateFounders(prev => prev.map(f => f.id === me.id ? updated : f));
     if (formImages.length > 0) await sSet(K_IMG(me.id), formImages);
     else { try { await storage.delete(K_IMG(me.id), true); } catch {} }
     setMe(updated); setMyImages(formImages); setSaving(false); setEditingProfile(false);
@@ -370,19 +396,18 @@ export default function CuriousDashboard() {
     const now = new Date().toISOString();
     let id = adminEditingId;
     if (adminEditingId) {
-      const next = founders.map(f => f.id === adminEditingId
+      await mutateFounders(prev => prev.map(f => f.id === adminEditingId
         ? { ...f, ...form, email: cleanEmail(form.email), imageCount: formImages.length, lastUpdated: now,
             updates: form.latestUpdate.trim() && form.latestUpdate !== f.latestUpdate
               ? [{ text: form.latestUpdate.trim(), date: now, by: "admin" }, ...(f.updates || [])] : f.updates }
-        : f);
-      await persistFounders(next);
+        : f));
     } else {
       id = uid();
       const entry = { ...form, email: cleanEmail(form.email), id, addedOn: now, lastUpdated: now,
         profileComplete: !inviteOnly, completedOn: inviteOnly ? "" : now,
         imageCount: formImages.length,
         updates: (!inviteOnly && form.latestUpdate.trim()) ? [{ text: form.latestUpdate.trim(), date: now, by: "admin" }] : [] };
-      await persistFounders([entry, ...founders]);
+      await mutateFounders(prev => [entry, ...prev]);
     }
     if (formImages.length > 0) await sSet(K_IMG(id), formImages);
     setCardImages(prev => ({ ...prev, [id]: formImages }));
@@ -391,7 +416,7 @@ export default function CuriousDashboard() {
   };
 
   const adminLogin = () => {
-    if (adminCfg && (passInput === adminCfg.passcode || passInput === "1234")) { setView("admin"); setPassInput(""); setGateError(""); }
+    if (passInput === ADMIN_PASSCODE) { setView("admin"); setPassInput(""); setGateError(""); }
     else setGateError("Wrong passcode.");
   };
   const copyText = async (text, mark) => { try { await navigator.clipboard.writeText(text); setCopied(mark); setTimeout(() => setCopied(""), 1800); } catch {} };
@@ -409,13 +434,13 @@ export default function CuriousDashboard() {
     }
   };
   const saveNote = async (id) => {
-    await persistFounders(founders.map(f => f.id === id
+    await mutateFounders(prev => prev.map(f => f.id === id
       ? { ...f, adminNote: noteDraft[id] || "", checkInDate: checkInDraft[id] || "" } : f));
     setNoteSaved(id); setTimeout(() => setNoteSaved(null), 2000);
   };
   const markCheckedIn = async (id) => {
     const now = new Date().toISOString();
-    await persistFounders(founders.map(f => f.id === id ? { ...f, lastCheckIn: now, checkInDate: "" } : f));
+    await mutateFounders(prev => prev.map(f => f.id === id ? { ...f, lastCheckIn: now, checkInDate: "" } : f));
     setCheckInDraft(d => ({ ...d, [id]: "" }));
   };
   const startRecording = async (id) => {
@@ -431,7 +456,7 @@ export default function CuriousDashboard() {
         const dataUrl = await blobToDataUrl(blob);
         await sSet(K_NOTE(id), dataUrl);
         setAudioCache(p => ({ ...p, [id]: dataUrl }));
-        await persistFounders(founders.map(f => f.id === id ? { ...f, hasAudioNote: true } : f));
+        await mutateFounders(prev => prev.map(f => f.id === id ? { ...f, hasAudioNote: true } : f));
         stream.getTracks().forEach(t => t.stop());
       };
       recorderRef.current = mr; mr.start(); setRecordingFor(id);
@@ -445,7 +470,7 @@ export default function CuriousDashboard() {
   const deleteAudio = async (id) => {
     try { await storage.delete(K_NOTE(id), true); } catch {}
     setAudioCache(p => { const n = { ...p }; delete n[id]; return n; });
-    await persistFounders(founders.map(f => f.id === id ? { ...f, hasAudioNote: false } : f));
+    await mutateFounders(prev => prev.map(f => f.id === id ? { ...f, hasAudioNote: false } : f));
   };
   const checkInEmail = (f) => {
     const subj = encodeURIComponent(`Checking in — ${f.startupName || "your startup"}`);
@@ -453,14 +478,14 @@ export default function CuriousDashboard() {
     return `mailto:${f.email}?subject=${subj}&body=${body}`;
   };
   const removeFounder = async (id) => {
-    await persistFounders(founders.filter(f => f.id !== id));
+    await mutateFounders(prev => prev.filter(f => f.id !== id));
     try { await storage.delete(K_IMG(id), true); } catch {}
     setConfirmDelete(null);
   };
   const addUpdate = async (id) => {
     const text = (updateDrafts[id] || "").trim(); if (!text) return;
     const now = new Date().toISOString();
-    await persistFounders(founders.map(f => f.id === id
+    await mutateFounders(prev => prev.map(f => f.id === id
       ? { ...f, updates: [{ text, date: now, by: "admin" }, ...(f.updates || [])], latestUpdate: text, lastUpdated: now } : f));
     setUpdateDrafts(d => ({ ...d, [id]: "" }));
   };
@@ -1079,6 +1104,7 @@ export default function CuriousDashboard() {
             <TabBtn id="add" icon={Plus}>Add founder</TabBtn>
             <TabBtn id="places" icon={MapPin}>Places</TabBtn>
             <TabBtn id="digest" icon={Mail}>Digest</TabBtn>
+            <button onClick={refetchData} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Refresh data"><RefreshCw size={14} /></button>
             <button onClick={() => setView("landing")} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Lock"><Lock size={14} /></button>
           </nav>
         </div>
