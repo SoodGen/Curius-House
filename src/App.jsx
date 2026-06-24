@@ -3,7 +3,7 @@ import {
   Users, Globe, DollarSign, Plus, Search, Mail, CheckCircle2, Clock, Pencil,
   Trash2, X, Copy, Eye, LayoutDashboard, RefreshCw, Download,
   Image as ImageIcon, ArrowRight, Lock, ExternalLink, FileText, Smartphone, LogOut, Send, MapPin,
-  Mic, Square, Activity, Calendar, Bell, StickyNote, UserPlus
+  Mic, Square, Activity, Calendar, Bell, StickyNote, UserPlus, Star, Share2
 } from "lucide-react";
 import { storage } from "./supabase";
 
@@ -22,6 +22,16 @@ const blobToDataUrl = (blob) => new Promise((res, rej) => {
 });
 const isoDate = (d) => d.toISOString().slice(0, 10);
 const todayISO = () => isoDate(new Date());
+// Build a human reminder for a founder's scheduled check-in date.
+const checkInInfo = (f) => {
+  if (!f.checkInDate) return null;
+  const days = Math.round((new Date(f.checkInDate + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000);
+  const nice = new Date(f.checkInDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (days < 0) return { text: `Check-in overdue · ${Math.abs(days)}d`, due: true };
+  if (days === 0) return { text: "Check-in due today", due: true };
+  if (days === 1) return { text: `Check-in tomorrow · ${nice}`, due: false };
+  return { text: `Check-in ${nice} · in ${days}d`, due: false };
+};
 
 const CATEGORIES = ["Consumer AI", "Consumer Web3", "Creator Economy", "Micro-earning", "Other"];
 const STAGES = ["Idea", "MVP", "Pre-seed", "Seed", "Series A+"];
@@ -50,6 +60,11 @@ const fmtMoney = (n) => {
   if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
   return v > 0 ? `$${v}` : "$0";
 };
+// Admin-owned fields a founder's own save must never overwrite with a stale copy.
+const PRESERVE_FROM_SERVER = (f) => ({
+  adminNote: f.adminNote, hasAudioNote: f.hasAudioNote, checkInDate: f.checkInDate, lastCheckIn: f.lastCheckIn,
+  pinned: f.pinned, approved: f.approved, approvedOn: f.approvedOn, requestedOn: f.requestedOn, addedOn: f.addedOn,
+});
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 const daysAgo = (iso) => {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -250,6 +265,39 @@ export default function CuriousDashboard() {
       URL.revokeObjectURL(url);
     } catch (e) { console.error("backup failed", e); alert("Backup failed — check your connection and try again."); }
   };
+  // Pin / track a startup we like (shows up on the Tracked page)
+  const togglePin = (id) => mutateFounders(prev => prev.map(x => x.id === id ? { ...x, pinned: !x.pinned } : x));
+  // Shareable startup card
+  const [shareFounder, setShareFounder] = useState(null);
+  const [shareImg, setShareImg] = useState(null);
+  const cardRef = useRef(null);
+  const openShare = async (f) => {
+    setShareFounder(f); setShareImg(null);
+    try { const imgs = await sGet(K_IMG(f.id), []); if (Array.isArray(imgs) && imgs[0]) setShareImg(imgs[0]); } catch {}
+  };
+  const renderCardCanvas = async () => {
+    if (!window.html2canvas || !cardRef.current) { alert("Card tool still loading — try again in a second."); return null; }
+    return await window.html2canvas(cardRef.current, { scale: 2, backgroundColor: null, useCORS: true, logging: false });
+  };
+  const downloadCard = async () => {
+    const canvas = await renderCardCanvas(); if (!canvas) return;
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = `${(shareFounder.startupName || shareFounder.founderName || "startup").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-curious-ventures.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+  const shareCard = async () => {
+    const canvas = await renderCardCanvas(); if (!canvas) return;
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "startup-card.png", { type: "image/png" });
+      const data = { files: [file], title: shareFounder.startupName || shareFounder.founderName, text: `${shareFounder.startupName || shareFounder.founderName} — via Curious Ventures` };
+      if (navigator.canShare && navigator.canShare(data)) {
+        try { await navigator.share(data); } catch {}
+      } else { downloadCard(); }
+    }, "image/png");
+  };
+  const pinnedFounders = useMemo(() => founders.filter(f => f.pinned), [founders]);
 
   const addPlace = async () => {
     const name = newPlace.trim();
@@ -314,7 +362,7 @@ export default function CuriousDashboard() {
     const list = Array.isArray(latest) ? latest : [];
     setFounders(list);
     const f = list.find(x => cleanEmail(x.email) === email);
-    if (!f || !f.password || f.password !== loginPass) { setLoginError("Email or password not recognized. Check with Sood."); return; }
+    if (!f || !f.password || f.password !== loginPass) { setLoginError("Email or password not recognized. Check with the Curious Ventures team."); return; }
     if (f.approved === false) { setLoginError("Your request is still pending approval. We'll be in touch once you're in."); return; }
     setLoginError("");
     setMe(f);
@@ -338,7 +386,7 @@ export default function CuriousDashboard() {
     if (!reqForm.founderName.trim()) { setReqError("Please add your name."); return; }
     if (!cleanEmail(reqForm.email)) { setReqError("A valid email is required."); return; }
     if (reqForm.password.trim().length < 4) { setReqError("Choose a password of at least 4 characters."); return; }
-    if (!reqForm.networkState) { setReqError("Please pick where you met Sood."); return; }
+    if (!reqForm.networkState) { setReqError("Please pick where we met."); return; }
     if (founders.find(f => cleanEmail(f.email) === cleanEmail(reqForm.email))) { setReqError("That email already has an account or a pending request."); return; }
     const now = new Date().toISOString();
     const entry = {
@@ -364,29 +412,30 @@ export default function CuriousDashboard() {
   const submitOnboarding = async () => {
     setFormError("");
     if (!form.founderName.trim() || !form.startupName.trim()) { setFormError("Please add your name and startup name."); return; }
-    if (!form.networkState) { setFormError("Please pick where you met Sood."); return; }
+    if (!form.networkState) { setFormError("Please pick where we met."); return; }
     setSaving(true);
     const now = new Date().toISOString();
-    const updated = {
-      ...me, ...form, email: me.email, password: me.password, profileComplete: true,
-      completedOn: me.completedOn || now,
-      imageCount: formImages.length, lastUpdated: now,
-      updates: form.latestUpdate.trim() && form.latestUpdate !== me.latestUpdate
-        ? [{ text: form.latestUpdate.trim(), date: now, by: "founder" }, ...(me.updates || [])]
-        : (me.updates || [])
-    };
-    await mutateFounders(prev => prev.map(f => f.id === me.id ? updated : f));
+    const next = await mutateFounders(prev => prev.map(f => f.id === me.id
+      ? { ...f, ...form, ...PRESERVE_FROM_SERVER(f), email: f.email, password: f.password, profileComplete: true,
+          completedOn: f.completedOn || now, imageCount: formImages.length, lastUpdated: now,
+          updates: form.latestUpdate.trim() && form.latestUpdate !== f.latestUpdate
+            ? [{ text: form.latestUpdate.trim(), date: now, by: "founder" }, ...(f.updates || [])]
+            : (f.updates || []) }
+      : f));
     if (formImages.length > 0) await sSet(K_IMG(me.id), formImages);
-    setMe(updated); setMyImages(formImages); setSaving(false); setView("founderHome");
+    const mine = next.find(f => f.id === me.id); if (mine) setMe(mine);
+    setMyImages(formImages); setSaving(false); setView("founderHome");
   };
 
   const postMyUpdate = async () => {
     const text = myUpdate.trim();
     if (!text || !me) return;
     const now = new Date().toISOString();
-    const updated = { ...me, latestUpdate: text, lastUpdated: now, updates: [{ text, date: now, by: "founder" }, ...(me.updates || [])] };
-    await mutateFounders(prev => prev.map(f => f.id === me.id ? updated : f));
-    setMe(updated); setMyUpdate(""); setConfirmPost(false); setMySaved(true); setTimeout(() => setMySaved(false), 2500);
+    const next = await mutateFounders(prev => prev.map(f => f.id === me.id
+      ? { ...f, latestUpdate: text, lastUpdated: now, updates: [{ text, date: now, by: "founder" }, ...(f.updates || [])] }
+      : f));
+    const mine = next.find(f => f.id === me.id); if (mine) setMe(mine);
+    setMyUpdate(""); setConfirmPost(false); setMySaved(true); setTimeout(() => setMySaved(false), 2500);
   };
 
   const startEditProfile = () => { setForm({ ...EMPTY_FOUNDER, ...me }); setFormImages(myImages); setImgError(""); setFormError(""); setEditingProfile(true); };
@@ -394,14 +443,16 @@ export default function CuriousDashboard() {
   const saveMyProfile = async () => {
     setFormError("");
     if (!form.founderName.trim() || !form.startupName.trim()) { setFormError("Name and startup name are required."); return; }
-    if (!form.networkState) { setFormError("Please pick where you met Sood."); return; }
+    if (!form.networkState) { setFormError("Please pick where we met."); return; }
     setSaving(true);
     const now = new Date().toISOString();
-    const updated = { ...me, ...form, email: me.email, password: me.password, profileComplete: true, imageCount: formImages.length, lastUpdated: now };
-    await mutateFounders(prev => prev.map(f => f.id === me.id ? updated : f));
+    const next = await mutateFounders(prev => prev.map(f => f.id === me.id
+      ? { ...f, ...form, ...PRESERVE_FROM_SERVER(f), email: f.email, password: f.password, profileComplete: true, imageCount: formImages.length, lastUpdated: now }
+      : f));
     if (formImages.length > 0) await sSet(K_IMG(me.id), formImages);
     else { try { await storage.delete(K_IMG(me.id), true); } catch {} }
-    setMe(updated); setMyImages(formImages); setSaving(false); setEditingProfile(false);
+    const mine = next.find(f => f.id === me.id); if (mine) setMe(mine);
+    setMyImages(formImages); setSaving(false); setEditingProfile(false);
   };
 
   const handleImageFiles = async (fileList) => {
@@ -641,7 +692,7 @@ export default function CuriousDashboard() {
                   <span className="font-semibold" style={{ color: RED }}>{fmtMoney(remainingToRaise(f))} left of {fmtMoney(f.currentTarget)}</span>
                 </div>
                 <div className="h-1.5 bg-white rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100)}%`, background: RED }} />
+                  <div className="h-full rounded-full" style={{ width: `${Number(f.currentTarget) > 0 ? Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100) : 0}%`, background: RED }} />
                 </div>
               </div>
             )}
@@ -778,7 +829,7 @@ export default function CuriousDashboard() {
       </div>
       <div><span className={label}>One-liner</span>
         <input className={input} value={form.oneLiner} onChange={e => setForm({ ...form, oneLiner: e.target.value })} placeholder="AI copilot for creator monetization" /></div>
-      <div><span className={label}>Where did you meet Sood? *</span>
+      <div><span className={label}>Where did we meet? *</span>
         <select className={input} value={form.networkState} onChange={e => setForm({ ...form, networkState: e.target.value })}>
           <option value="" disabled>Select a place…</option>
           {places.map(n => <option key={n}>{n}</option>)}
@@ -842,7 +893,7 @@ export default function CuriousDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-semibold text-sm flex items-center gap-2"><Mail size={15} style={{ color: RED }} /> I'm a founder</div>
-                  <div className="text-xs text-neutral-500 mt-1">Log in with the email and password Sood set up for you.</div>
+                  <div className="text-xs text-neutral-500 mt-1">Log in with the email and password set up for you.</div>
                 </div>
                 <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
               </div>
@@ -882,10 +933,10 @@ export default function CuriousDashboard() {
             </div>
             {loginError && <p className="text-xs" style={{ color: RED }}>{loginError}</p>}
             <button onClick={founderLogin} className="w-full py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: BLACK }}>Log in</button>
-            <p className="text-[11px] text-neutral-400 text-center">Sood creates your login when you meet. Forgot it? Just ask him.</p>
+            <p className="text-[11px] text-neutral-400 text-center">Curious Ventures creates your login. Forgot it, just ask them.</p>
           </div>
           <div className="bg-white border border-neutral-200 rounded-lg p-4 mt-3 text-center">
-            <p className="text-xs text-neutral-500">Met Sood but don't have a login yet?</p>
+            <p className="text-xs text-neutral-500">Don't have a login yet?</p>
             <button onClick={() => { setView("founderRequest"); setReqError(""); }} className="text-sm font-semibold mt-1" style={{ color: RED }}>Request access →</button>
           </div>
           <button onClick={() => setView("landing")} className="block mx-auto mt-4 text-xs text-neutral-400 hover:text-neutral-900">← Back</button>
@@ -1019,7 +1070,7 @@ export default function CuriousDashboard() {
         <div className="max-w-lg mx-auto">
           <Brand sub="Request access" />
           <div className="bg-white border border-neutral-200 rounded-lg p-6 mt-8 space-y-4">
-            <p className="text-sm text-neutral-600">Tell us who you are and pick a password. Once Sood approves you, log in with this email and password to finish your profile.</p>
+            <p className="text-sm text-neutral-600">Tell us who you are and pick a password. Once Curious Ventures approves you, log in with this email and password to finish your profile.</p>
             <div>
               <span className={label}>Your name *</span>
               <input className={input} value={reqForm.founderName} onChange={e => setReqForm({ ...reqForm, founderName: e.target.value })} placeholder="Riya Sharma" autoFocus />
@@ -1039,7 +1090,7 @@ export default function CuriousDashboard() {
               </div>
             </div>
             <div>
-              <span className={label}>Where did you meet Sood? *</span>
+              <span className={label}>Where did we meet? *</span>
               <select className={input} value={reqForm.networkState} onChange={e => setReqForm({ ...reqForm, networkState: e.target.value })}>
                 <option value="" disabled>Select a place…</option>
                 {places.map(n => <option key={n}>{n}</option>)}
@@ -1064,7 +1115,7 @@ export default function CuriousDashboard() {
         <div className="text-center max-w-sm">
           <CheckCircle2 size={40} className="mx-auto" style={{ color: RED }} />
           <h2 className="text-xl font-bold mt-4">Request sent.</h2>
-          <p className="text-sm text-neutral-500 mt-2">Thanks — Sood will review and approve you. Once you're in, come back and log in with the email and password you just chose to finish your profile.</p>
+          <p className="text-sm text-neutral-500 mt-2">Thanks — Curious Ventures will review and approve you. Once you're in, come back and log in with the email and password you just chose to finish your profile.</p>
           <div className="flex items-center justify-center gap-3 mt-6">
             <button onClick={() => { setView("founderLogin"); setLoginError(""); }} className="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>Log in</button>
             <button onClick={() => setView("landing")} className="px-5 py-2.5 rounded-md text-sm font-semibold border border-neutral-300 hover:border-neutral-900">Done</button>
@@ -1080,7 +1131,7 @@ export default function CuriousDashboard() {
         <div className="max-w-2xl mx-auto">
           <Brand sub="Tell us about your startup" />
           <div className="bg-white border border-neutral-200 rounded-lg p-6 mt-8">
-            <p className="text-sm text-neutral-600 mb-5">Welcome, {me.founderName || "founder"} — Sood set up your login. Fill in your startup below. You can post updates anytime after this.</p>
+            <p className="text-sm text-neutral-600 mb-5">Welcome, {me.founderName || "founder"} — your login is ready. Fill in your startup below. You can post updates anytime after this.</p>
             {ProfileFields()}
             {formError && <p className="text-sm mt-4" style={{ color: RED }}>{formError}</p>}
             <div className="flex items-center gap-3 mt-6">
@@ -1143,6 +1194,13 @@ export default function CuriousDashboard() {
               )}
             </button>
             <TabBtn id="founders" icon={Users}>Founders</TabBtn>
+            <button onClick={() => setTab("tracked")}
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "tracked" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
+              <Star size={15} /><span className="hidden sm:inline">Tracked</span>
+              {pinnedFounders.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: "#f59e0b" }}>{pinnedFounders.length}</span>
+              )}
+            </button>
             <button onClick={() => setTab("requests")}
               className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "requests" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
               <Clock size={15} /><span className="hidden sm:inline">Requests</span>
@@ -1220,7 +1278,7 @@ export default function CuriousDashboard() {
                                   <span className="font-semibold" style={{ color: RED }}>{fmtMoney(remainingToRaise(f))} left</span>
                                 </div>
                                 <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
-                                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100)}%`, background: RED }} />
+                                  <div className="h-full rounded-full" style={{ width: `${Number(f.currentTarget) > 0 ? Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100) : 0}%`, background: RED }} />
                                 </div>
                               </div>
                             )}
@@ -1412,6 +1470,51 @@ export default function CuriousDashboard() {
           </div>
         )}
 
+        {tab === "tracked" && (
+          <div>
+            <div className="mb-5">
+              <h2 className="text-xl font-bold tracking-tight">Tracked startups ({pinnedFounders.length})</h2>
+              <p className="text-sm text-neutral-500 mt-0.5">Your watchlist — the startups you're keeping an eye on. Star any founder to add them here.</p>
+            </div>
+            {pinnedFounders.length === 0 ? (
+              <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">
+                No tracked startups yet. Open the Founders tab and tap the star on anyone you want to watch.
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-3">
+                {pinnedFounders.map(f => (
+                  <div key={f.id} className="bg-white border border-neutral-200 rounded-lg p-4 flex flex-col">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-bold truncate">{f.startupName || f.founderName || "Founder"}</div>
+                        <div className="text-sm text-neutral-600 truncate">{f.founderName}{f.oneLiner ? ` — ${f.oneLiner}` : ""}</div>
+                      </div>
+                      <button onClick={() => togglePin(f.id)} className="p-1.5 rounded-md text-amber-500 hover:bg-neutral-100 shrink-0" title="Untrack"><Star size={15} fill="currentColor" /></button>
+                    </div>
+                    <div className="text-xs text-neutral-400 mt-1">{[f.networkState, f.category, f.stage].filter(Boolean).join(" · ") || "Profile pending"}</div>
+                    {checkInInfo(f) && (
+                      <div className="mt-1.5">
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${checkInInfo(f).due ? "text-white" : "bg-amber-50 text-amber-700 border border-amber-200"}`} style={checkInInfo(f).due ? { background: RED } : {}}>
+                          <Bell size={11} /> {checkInInfo(f).text}
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-2">
+                      {f.fundingStatus === "Raising now" ? <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Raising now</span>
+                        : hasRaised(f) ? <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-900 text-white">Raised {fmtMoney(totalRaised(f))}</span>
+                        : <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">{f.fundingStatus || "—"}</span>}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-neutral-100 flex items-center gap-2">
+                      <button onClick={() => openShare(f)} className="flex-1 px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center justify-center gap-1.5"><Share2 size={12} /> Share card</button>
+                      <button onClick={() => goToFounder(f)} className="px-3 py-2 rounded-md text-xs font-medium text-white flex items-center gap-1.5" style={{ background: BLACK }}>Details <ArrowRight size={12} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "founders" && (
           <div>
             <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
@@ -1459,10 +1562,20 @@ export default function CuriousDashboard() {
                           <div className="text-sm text-neutral-600 mt-1">{pending ? (f.founderName || "Hasn't logged in yet") : `${f.founderName}${f.oneLiner ? ` — ${f.oneLiner}` : ""}`}</div>
                           <div className="text-xs text-neutral-400 mt-1">{pending ? `Invited${f.metAt ? ` · Met: ${f.metAt}` : ""}` : `${f.networkState} · ${f.category} · ${f.stage}`}</div>
                           <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {f.email || "no login email"}</div>
+                          {checkInInfo(f) && (
+                            <div className="mt-1.5">
+                              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${checkInInfo(f).due ? "text-white" : "bg-amber-50 text-amber-700 border border-amber-200"}`} style={checkInInfo(f).due ? { background: RED } : {}}>
+                                <Bell size={11} /> {checkInInfo(f).text}
+                              </span>
+                            </div>
+                          )}
                           {!pending && <FundingSummary f={f} compact />}
                           <LinkChips f={f} />
                         </div>
                         <div className="flex items-center gap-1">
+                          <button onClick={() => togglePin(f.id)} className={`p-2 rounded-md hover:bg-neutral-100 ${f.pinned ? "text-amber-500" : "text-neutral-400 hover:text-neutral-900"}`} title={f.pinned ? "Tracked — click to untrack" : "Track this startup"}>
+                            <Star size={15} fill={f.pinned ? "currentColor" : "none"} />
+                          </button>
                           <button onClick={() => openNote(f)} className={`p-2 rounded-md hover:bg-neutral-100 relative ${(f.adminNote || f.hasAudioNote || f.checkInDate) ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-900"}`} title="Private note & check-in">
                             <StickyNote size={15} />
                             {f.checkInDate && f.checkInDate <= todayISO() && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: RED }} />}
@@ -1507,6 +1620,9 @@ export default function CuriousDashboard() {
                         <button onClick={() => addUpdate(f.id)} className="px-3 py-2 rounded-md text-xs font-medium text-white" style={{ background: BLACK }}>Log</button>
                         <button onClick={() => copyText(loginMsg, f.id)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
                           <Copy size={12} /> {copied === f.id ? "Copied!" : pending ? "Copy invite" : "Copy login details"}
+                        </button>
+                        <button onClick={() => openShare(f)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
+                          <Share2 size={12} /> Share card
                         </button>
                       </div>
 
@@ -1801,6 +1917,48 @@ export default function CuriousDashboard() {
       <footer className="max-w-6xl mx-auto px-5 py-6 text-[11px] text-neutral-400 flex items-center gap-1.5">
         <Eye size={11} /> Shared workspace — founder data and logins live in shared storage.
       </footer>
+
+      {shareFounder && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-auto" onClick={() => setShareFounder(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full my-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-semibold">Share card</span>
+              <button onClick={() => setShareFounder(null)} className="p-1 text-neutral-400 hover:text-neutral-900"><X size={18} /></button>
+            </div>
+            <div ref={cardRef} style={{ width: "100%", background: "#0A0A0A", color: "#fff", borderRadius: 18, padding: 26, fontFamily: "'Inter', system-ui, sans-serif", boxSizing: "border-box" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 99, background: RED }} />
+                  <span style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#9a9a9a", fontWeight: 700 }}>Curious Ventures</span>
+                </div>
+                <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: RED, fontWeight: 700 }}>
+                  {shareFounder.fundingStatus === "Raising now" ? "Raising now" : hasRaised(shareFounder) ? "Funded" : "On our radar"}
+                </span>
+              </div>
+              {shareImg && <img src={shareImg} alt="" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 12, marginTop: 18, display: "block" }} />}
+              <div style={{ marginTop: 18, fontSize: 24, fontWeight: 800, lineHeight: 1.15 }}>{shareFounder.startupName || shareFounder.founderName || "Startup"}</div>
+              {shareFounder.founderName && <div style={{ marginTop: 5, fontSize: 13, color: "#b5b5b5" }}>{shareFounder.founderName}</div>}
+              {shareFounder.oneLiner && <div style={{ marginTop: 12, fontSize: 14, color: "#e2e2e2", lineHeight: 1.45 }}>{shareFounder.oneLiner}</div>}
+              <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {[shareFounder.stage, shareFounder.category, shareFounder.networkState].filter(Boolean).map((t, i) => (
+                  <span key={i} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 99, background: "#1b1b1b", color: "#cccccc" }}>{t}</span>
+                ))}
+              </div>
+              <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid #232323", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: shareFounder.fundingStatus === "Raising now" ? RED : "#e2e2e2" }}>
+                  {shareFounder.fundingStatus === "Raising now" ? `Raising${shareFounder.currentTarget ? ` ${fmtMoney(shareFounder.currentTarget)}` : ""}` : hasRaised(shareFounder) ? `Raised ${fmtMoney(totalRaised(shareFounder))}` : (shareFounder.fundingStatus || "")}
+                </span>
+                <span style={{ fontSize: 11, color: "#777" }}>house.curiousventures.xyz</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mt-4">
+              <button onClick={shareCard} className="flex-1 py-2.5 rounded-md text-sm font-semibold text-white flex items-center justify-center gap-1.5" style={{ background: RED }}><Share2 size={14} /> Share</button>
+              <button onClick={downloadCard} className="flex-1 py-2.5 rounded-md text-sm font-semibold border border-neutral-300 hover:border-neutral-900 flex items-center justify-center gap-1.5"><Download size={14} /> Download</button>
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-2 text-center">Send this to introduce {shareFounder.startupName || "this startup"} to someone in your network.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
