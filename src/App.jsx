@@ -13,6 +13,51 @@ const K_PLACES = "cv-places-v1";
 const K_HISTORY = "cv-founders-history-v1";
 const K_IMG = (id) => `cv-img-${id}`;
 const K_NOTE = (id) => `cv-note-${id}`;
+const K_INVESTORS = "cv-investors-v1";
+const K_CONNECTS = "cv-connects-v1";
+
+// Directory of startup societies (source: ns.com/dashboard). r = rising / newly emerging.
+const NETWORK_STATES = [
+  { n: "Network School", t: "Startup Society", l: "Singapore–Johor SEZ", d: "Turning internet communities into physical societies.", r: false },
+  { n: "Ârc", t: "Startup Society", l: "Network School", d: "Network School's first permanent Layer 2, building toward a charter city.", r: false },
+  { n: "Zu-Grama", t: "Popup Village", l: "India", d: "An onchain village fusing coliving with deep tech.", r: true },
+  { n: "Próspera", t: "SEZ", l: "Honduras", d: "A startup city on Roatán with its own legal code and governance.", r: false },
+  { n: "Edge City", t: "Popup Village", l: "Global", d: "Month-long popup villages for frontier tech, science and culture.", r: false },
+  { n: "Forma", t: "Popup Village", l: "Global · UK", d: "Solana economic zones, now building a permanent UK campus.", r: false },
+  { n: "Crecimiento", t: "Startup Society", l: "Buenos Aires", d: "Making Argentina a global hub for tech innovation.", r: false },
+  { n: "Frontier Tower", t: "Vertical Village", l: "San Francisco", d: "A 16-floor vertical village for frontier tech pioneers.", r: false },
+  { n: "4Seas", t: "Startup Society", l: "Chiang Mai, Thailand", d: "A permanent node of the Zuzalu movement.", r: false },
+  { n: "Akiya Collective", t: "Startup Society", l: "Japan", d: "Transforming Japan's vacant akiya homes into residencies.", r: false },
+  { n: "Amagi Life", t: "Startup Society", l: "Thailand", d: "Regenerative villages with a contribution-driven economy.", r: true },
+  { n: "ArkPad", t: "Construction", l: "Philippines", d: "Floating structures for human habitation on the water.", r: true },
+  { n: "Bitcoin Learning Center", t: "Hub", l: "Chiang Mai, Thailand", d: "Asia's most active physical Bitcoin hub.", r: false },
+  { n: "Cafe Cursor", t: "Popup", l: "Global", d: "Popup cafe takeovers where builders code together.", r: true },
+  { n: "Ciudad Morazán", t: "Startup City", l: "Honduras", d: "Safe housing and modern amenities for blue-collar entrepreneurs.", r: false },
+  { n: "Commons Hub", t: "Popup Village", l: "Austrian Alps", d: "A popup village for regenerative commons.", r: false },
+  { n: "Culdesac", t: "Startup City", l: "Tempe, Arizona", d: "Walkable neighborhoods built for belonging.", r: false },
+  { n: "Futura Camp (ZuBerlin)", t: "Popup Village", l: "Berlin", d: "Immersive coliving bridging technology and human connection.", r: false },
+  { n: "Gelephu Mindfulness City", t: "Startup City", l: "Bhutan", d: "An emerging startup city and SEZ in Bhutan.", r: true },
+  { n: "Hacker Residency Group", t: "Popup Village", l: "Da Nang, Vietnam", d: "A residency for ambitious indie hackers to lock in.", r: true },
+  { n: "Infinita", t: "Startup Society", l: "Roatán, Honduras", d: "A network city focused on longevity and biotech.", r: false },
+  { n: "Ipê City", t: "Popup Village", l: "Brazil · Global", d: "Techno-optimists building internet-native cities.", r: true },
+  { n: "mtndao", t: "Popup Village", l: "Salt Lake City, Utah", d: "Month-long popups for Solana founders.", r: false },
+  { n: "Noma Collective", t: "Popup Village", l: "Global", d: "A network society for digital nomads and remote builders.", r: false },
+  { n: "Nomad", t: "Construction", l: "USA · Honduras", d: "Coliving villages from the future.", r: false },
+  { n: "Proto-Town", t: "Startup City", l: "Lockhart, Texas", d: "A place to build hardware.", r: true },
+  { n: "RNS.ID", t: "Digital ID", l: "Palau · Global", d: "Government-backed digital residency from the Republic of Palau.", r: false },
+  { n: "ShanHaiWoo", t: "Popup Village", l: "Global", d: "Popup villages shipping real Ethereum and AI applications.", r: false },
+  { n: "Starbase", t: "Startup City", l: "Texas", d: "Gateway to Mars.", r: false },
+  { n: "The Mu", t: "Popup Village", l: "Global", d: "Facilitating popup villages worldwide.", r: false },
+  { n: "Traditional Dream Factory", t: "Startup Society", l: "Portugal", d: "A regenerative coliving village.", r: false },
+  { n: "Vibecamp", t: "Popup Village", l: "USA · Global", d: "A recurring IRL festival for internet communities.", r: false },
+  { n: "Zanzalu", t: "Popup Village", l: "Zanzibar", d: "Builders from Africa and overseas living and collaborating.", r: false },
+  { n: "ZuAfrique", t: "Popup Village", l: "Ghana · Kenya", d: "Helping African builders ship real-world projects.", r: true },
+  { n: "Zuitzerland", t: "Popup Village", l: "Swiss Alps", d: "A Swiss village for d/acc and open-source acceleration.", r: false },
+  { n: "ZuJapan", t: "Startup City", l: "Japan", d: "A permanent Zuzalu village, partnered with Akiya Collective.", r: true },
+  { n: "ZuKaş", t: "Startup Society", l: "Kaş, Turkey", d: "Focused on Lycian democracy and participatory governance.", r: false },
+  { n: "Zuzalu", t: "Startup Society", l: "Montenegro · Global", d: "The umbrella community of popup villages anchored to Ethereum.", r: false },
+];
+const NS_TYPES = ["All", "Startup Society", "Popup Village", "Startup City", "SEZ", "Other"];
 
 const blobToDataUrl = (blob) => new Promise((res, rej) => {
   const r = new FileReader();
@@ -163,6 +208,25 @@ export default function CuriousDashboard() {
   const [passInput, setPassInput] = useState("");
   const [gateError, setGateError] = useState("");
   const [tab, setTab] = useState("dashboard");
+  // Investors + connects
+  const [investors, setInvestors] = useState([]);
+  const [connects, setConnects] = useState([]);
+  const [inv, setInv] = useState(null);
+  const [invLoginEmail, setInvLoginEmail] = useState("");
+  const [invLoginPass, setInvLoginPass] = useState("");
+  const [invLoginError, setInvLoginError] = useState("");
+  const [invReq, setInvReq] = useState({ name: "", firm: "", focus: "", checkSize: "", email: "", password: "" });
+  const [invReqError, setInvReqError] = useState("");
+  const [invSearch, setInvSearch] = useState("");
+  // Public page
+  const [nsSearch, setNsSearch] = useState("");
+  const [nsType, setNsType] = useState("All");
+  // Founders page filters
+  const [fCat, setFCat] = useState("");
+  const [fStage, setFStage] = useState("");
+  const [fFund, setFFund] = useState("");
+  const [fPlace, setFPlace] = useState("");
+  const [fSort, setFSort] = useState("updated");
   const [search, setSearch] = useState("");
   const [adminEditingId, setAdminEditingId] = useState(null);
   const [addMode, setAddMode] = useState("full"); // full | invite
@@ -193,23 +257,25 @@ export default function CuriousDashboard() {
 
   const loadAll = async () => {
     setLoading(true);
-    let [f, a, p] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_ADMIN, null), sGet(K_PLACES, null)]);
+    let [f, a, p, iv, cn] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_ADMIN, null), sGet(K_PLACES, null), sGet(K_INVESTORS, []), sGet(K_CONNECTS, [])]);
     if (!a) { a = { passcode: ADMIN_PASSCODE, createdOn: new Date().toISOString() }; await sSet(K_ADMIN, a); }
     if (!p) { p = [...DEFAULT_PLACES]; await sSet(K_PLACES, p); }
-    setFounders(f); setAdminCfg(a); setPlaces(p); setLoading(false);
+    setFounders(f); setAdminCfg(a); setPlaces(p); setInvestors(Array.isArray(iv) ? iv : []); setConnects(Array.isArray(cn) ? cn : []); setLoading(false);
   };
   useEffect(() => { loadAll(); }, []);
 
   // Re-fetch latest data from Supabase (so changes from other devices appear)
   const refetchData = async () => {
-    const [f, p] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_PLACES, [])]);
+    const [f, p, iv, cn] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_PLACES, []), sGet(K_INVESTORS, []), sGet(K_CONNECTS, [])]);
     setFounders(f);
     if (Array.isArray(p)) setPlaces(p);
+    if (Array.isArray(iv)) setInvestors(iv);
+    if (Array.isArray(cn)) setConnects(cn);
   };
 
   // While in the admin dashboard, keep data fresh: on entry, on window focus, and on a light timer.
   useEffect(() => {
-    if (view !== "admin") return;
+    if (view !== "admin" && view !== "investorHome") return;
     refetchData();
     const onFocus = () => refetchData();
     window.addEventListener("focus", onFocus);
@@ -219,7 +285,7 @@ export default function CuriousDashboard() {
 
   // Preload founder images for admin cards
   useEffect(() => {
-    if (view !== "admin") return;
+    if (view !== "admin" && view !== "investorHome") return;
     let cancelled = false;
     (async () => {
       const need = founders.filter(f => (f.imageCount > 0) && cardImages[f.id] === undefined);
@@ -350,10 +416,22 @@ export default function CuriousDashboard() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return activeFounders
+    const list = activeFounders
       .filter(f => !q || [f.startupName, f.founderName, f.networkState, f.category, f.email].some(v => (v || "").toLowerCase().includes(q)))
-      .sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
-  }, [activeFounders, search]);
+      .filter(f => !fCat || f.category === fCat)
+      .filter(f => !fStage || f.stage === fStage)
+      .filter(f => !fFund || f.fundingStatus === fFund)
+      .filter(f => !fPlace || f.networkState === fPlace);
+    const by = {
+      updated: (a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated),
+      newest: (a, b) => new Date(b.addedOn) - new Date(a.addedOn),
+      raising: (a, b) => (b.fundingStatus === "Raising now") - (a.fundingStatus === "Raising now") || new Date(b.lastUpdated) - new Date(a.lastUpdated),
+      az: (a, b) => (a.startupName || a.founderName || "").localeCompare(b.startupName || b.founderName || ""),
+    };
+    return list.sort(by[fSort] || by.updated);
+  }, [activeFounders, search, fCat, fStage, fFund, fPlace, fSort]);
+  const filtersOn = !!(fCat || fStage || fFund || fPlace);
+  const clearFilters = () => { setFCat(""); setFStage(""); setFFund(""); setFPlace(""); };
 
   const founderLogin = async () => {
     const email = cleanEmail(loginEmail);
@@ -516,7 +594,7 @@ export default function CuriousDashboard() {
         ? "Hi,\n\nYou're approved on the Curious Ventures founder tracker. Log in at house.curiousventures.xyz with the email and password you chose, then add your startup details. You can post updates anytime after.\n\nThe updates you post are what I share with the LPs and investors in my network.\n\n- Sood"
         : "Hi,\n\nQuick note from Curious Ventures. Log in at house.curiousventures.xyz to keep your startup details current and post any recent milestones - that's what I pass along to the LPs and investors in my network.\n\n- Sood"
     );
-    window.location.href = `mailto:?bcc=${emails.join(",")}&subject=${subject}&body=${body}`;
+    openMail(`mailto:?bcc=${emails.join(",")}&subject=${subject}&body=${body}`);
   };
 
   // ---- Admin private notes & check-ins ----
@@ -574,6 +652,80 @@ export default function CuriousDashboard() {
     const body = encodeURIComponent(`Hi ${(f.founderName || "there").split(" ")[0]},\n\nWanted to check in and see how things are going with ${f.startupName || "the startup"}. Any updates since we last spoke?\n\nBest,\nSood`);
     return `mailto:${f.email}?subject=${subj}&body=${body}`;
   };
+  // Open mail drafts and external links in a new tab/window
+  const openMail = (url) => { try { window.open(url, "_blank", "noopener"); } catch { window.location.href = url; } };
+  // ---- Investors ----
+  const mutateInvestors = async (updater) => {
+    const latest = await sGet(K_INVESTORS, []);
+    const next = updater(Array.isArray(latest) ? latest : []);
+    setInvestors(next);
+    await sSet(K_INVESTORS, next);
+    return next;
+  };
+  const mutateConnects = async (updater) => {
+    const latest = await sGet(K_CONNECTS, []);
+    const next = updater(Array.isArray(latest) ? latest : []);
+    setConnects(next);
+    await sSet(K_CONNECTS, next);
+    return next;
+  };
+  const pendingInvestors = useMemo(() => investors.filter(i => i.approved === false).sort((a, b) => new Date(b.requestedOn) - new Date(a.requestedOn)), [investors]);
+  const activeInvestors = useMemo(() => investors.filter(i => i.approved !== false), [investors]);
+  const submitInvestorRequest = async () => {
+    const email = cleanEmail(invReq.email);
+    if (!invReq.name.trim()) { setInvReqError("Please add your name."); return; }
+    if (!email || !email.includes("@")) { setInvReqError("Please add a valid email."); return; }
+    if (!invReq.password || invReq.password.length < 4) { setInvReqError("Pick a password (4+ characters)."); return; }
+    const latest = await sGet(K_INVESTORS, []);
+    if ((Array.isArray(latest) ? latest : []).some(i => cleanEmail(i.email) === email)) { setInvReqError("That email already has access or a pending request."); return; }
+    const entry = { ...invReq, email, id: uid(), approved: false, requestedOn: new Date().toISOString() };
+    await mutateInvestors(prev => [entry, ...prev]);
+    setInvReq({ name: "", firm: "", focus: "", checkSize: "", email: "", password: "" });
+    setInvReqError("");
+    setView("investorRequestSent");
+  };
+  const approveInvestor = async (id) => { await mutateInvestors(prev => prev.map(i => i.id === id ? { ...i, approved: true, approvedOn: new Date().toISOString() } : i)); };
+  const declineInvestor = async (id) => { await mutateInvestors(prev => prev.filter(i => i.id !== id)); };
+  const investorLogin = async () => {
+    const email = cleanEmail(invLoginEmail);
+    const latest = await sGet(K_INVESTORS, []);
+    const list = Array.isArray(latest) ? latest : [];
+    setInvestors(list);
+    const i = list.find(x => cleanEmail(x.email) === email);
+    if (!i || !i.password || i.password !== invLoginPass) { setInvLoginError("Email or password not recognized. Check with the Curious Ventures team."); return; }
+    if (i.approved === false) { setInvLoginError("Your request is still pending approval. We'll be in touch once you're in."); return; }
+    setInvLoginError("");
+    setInv(i);
+    await refetchData();
+    setView("investorHome");
+  };
+  const requestConnect = async (f) => {
+    if (!inv) return;
+    await mutateConnects(prev => prev.some(c => c.investorId === inv.id && c.founderId === f.id) ? prev
+      : [{ id: uid(), investorId: inv.id, investorName: inv.name, investorFirm: inv.firm || "", founderId: f.id, startupName: f.startupName || f.founderName || "Startup", date: new Date().toISOString() }, ...prev]);
+  };
+  const hasRequestedConnect = (fid) => inv && connects.some(c => c.investorId === inv.id && c.founderId === fid);
+  const removeConnect = async (id) => { await mutateConnects(prev => prev.filter(c => c.id !== id)); };
+  const investorApprovalMsg = (i) => `Hi ${(i.name || "there").split(" ")[0]},\n\nYou're approved on Curious House — the live deal flow from Curious Ventures' network state sourcing.\n\nLog in at house.curiousventures.xyz with the email and password you chose. You'll see every startup in our current flow, including who's raising right now. Tap "Request intro" on anything interesting and we'll connect you directly.\n\n— Curious Ventures`;
+  // Investor deal board list (approved founders with a completed profile)
+  const dealFlow = useMemo(() => {
+    const q = invSearch.toLowerCase();
+    return activeFounders
+      .filter(f => f.profileComplete !== false)
+      .filter(f => !q || [f.startupName, f.founderName, f.networkState, f.category, f.oneLiner].some(v => (v || "").toLowerCase().includes(q)))
+      .filter(f => !fCat || f.category === fCat)
+      .filter(f => !fStage || f.stage === fStage)
+      .filter(f => !fFund || f.fundingStatus === fFund)
+      .filter(f => !fPlace || f.networkState === fPlace)
+      .sort((a, b) => (b.fundingStatus === "Raising now") - (a.fundingStatus === "Raising now") || new Date(b.lastUpdated) - new Date(a.lastUpdated));
+  }, [activeFounders, invSearch, fCat, fStage, fFund, fPlace]);
+  // Live stats for the public page
+  const pubStats = useMemo(() => ({
+    met: activeFounders.length,
+    states: new Set(activeFounders.map(f => f.networkState).filter(Boolean)).size || places.length,
+    raising: activeFounders.filter(f => f.fundingStatus === "Raising now").length,
+    raised: activeFounders.reduce((sum, f) => sum + (totalRaised(f) || 0), 0),
+  }), [activeFounders, places]);
   const removeFounder = async (id) => {
     await mutateFounders(prev => prev.filter(f => f.id !== id));
     try { await storage.delete(K_IMG(id), true); } catch {}
@@ -624,6 +776,45 @@ export default function CuriousDashboard() {
   const input = "w-full bg-white border border-neutral-200 rounded-md px-3 py-2.5 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none focus:border-neutral-900 transition-colors";
   const label = "block text-[11px] font-semibold tracking-widest uppercase text-neutral-500 mb-1.5";
   const RED = "#E63946", BLACK = "#0A0A0A";
+
+  // Animated globe: wireframe sphere, pulsing network-state nodes, connection arcs, rotating orbit.
+  const GlobeArt = ({ size = 150 }) => (
+    <svg viewBox="0 0 160 160" width={size} height={size} className="block" aria-hidden="true">
+      {/* faint stars */}
+      {[[12,22],[30,120],[146,40],[140,128],[8,80],[152,86],[52,10],[104,152]].map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="1" fill="#555">
+          <animate attributeName="opacity" values="0.2;0.8;0.2" dur={`${2.4 + i * 0.4}s`} repeatCount="indefinite" />
+        </circle>
+      ))}
+      {/* wireframe sphere */}
+      <circle cx="80" cy="80" r="52" fill="none" stroke="#333" strokeWidth="1" />
+      <ellipse cx="80" cy="80" rx="20" ry="52" fill="none" stroke="#2a2a2a" strokeWidth="1" />
+      <ellipse cx="80" cy="80" rx="38" ry="52" fill="none" stroke="#2a2a2a" strokeWidth="1" />
+      <ellipse cx="80" cy="80" rx="52" ry="12" fill="none" stroke="#2a2a2a" strokeWidth="1" />
+      <ellipse cx="80" cy="55" rx="43" ry="8" fill="none" stroke="#2a2a2a" strokeWidth="1" />
+      <ellipse cx="80" cy="106" rx="42" ry="8" fill="none" stroke="#2a2a2a" strokeWidth="1" />
+      {/* connection arcs */}
+      <path d="M 52 62 Q 80 30 108 70" fill="none" stroke="#E63946" strokeWidth="1" opacity="0.5" />
+      <path d="M 60 104 Q 90 128 112 88" fill="none" stroke="#E63946" strokeWidth="1" opacity="0.35" />
+      <path d="M 52 62 Q 40 95 60 104" fill="none" stroke="#E63946" strokeWidth="1" opacity="0.3" />
+      {/* pulsing nodes */}
+      {[[52,62,0],[108,70,0.6],[60,104,1.2],[112,88,1.8],[84,44,0.9]].map(([x, y, d], i) => (
+        <g key={i}>
+          <circle cx={x} cy={y} r="2.5" fill="#E63946" />
+          <circle cx={x} cy={y} r="2.5" fill="none" stroke="#E63946" strokeWidth="1">
+            <animate attributeName="r" values="2.5;9" dur="2.4s" begin={`${d}s`} repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.8;0" dur="2.4s" begin={`${d}s`} repeatCount="indefinite" />
+          </circle>
+        </g>
+      ))}
+      {/* rotating orbit ring */}
+      <g>
+        <ellipse cx="80" cy="80" rx="70" ry="24" fill="none" stroke="#E63946" strokeWidth="0.8" strokeDasharray="3 5" opacity="0.5" transform="rotate(-18 80 80)">
+          <animateTransform attributeName="transform" type="rotate" from="-18 80 80" to="342 80 80" dur="26s" repeatCount="indefinite" />
+        </ellipse>
+      </g>
+    </svg>
+  );
 
   const Brand = ({ sub }) => (
     <div className="text-center">
@@ -892,8 +1083,18 @@ export default function CuriousDashboard() {
               className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-sm flex items-center gap-2"><Mail size={15} style={{ color: RED }} /> I'm a founder</div>
+                  <div className="font-semibold text-sm flex items-center gap-2"><Mail size={15} style={{ color: RED }} /> Founder Login</div>
                   <div className="text-xs text-neutral-500 mt-1">Log in with the email and password set up for you.</div>
+                </div>
+                <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
+              </div>
+            </button>
+            <button onClick={() => { setView("investorLogin"); setInvLoginError(""); setInvLoginEmail(""); setInvLoginPass(""); }}
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-sm flex items-center gap-2"><DollarSign size={15} style={{ color: RED }} /> Investor Login</div>
+                  <div className="text-xs text-neutral-500 mt-1">See live deal flow from inside the network states.</div>
                 </div>
                 <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
               </div>
@@ -910,7 +1111,311 @@ export default function CuriousDashboard() {
             </button>
           </div>
           <p className="text-[11px] text-neutral-400 text-center mt-6">Invite-only. We track founders we've met inside network state communities.</p>
+          <button onClick={() => setView("publicStates")} className="w-full mt-4 rounded-lg overflow-hidden text-left relative group border border-neutral-800 hover:border-neutral-600 transition-colors" style={{ background: BLACK }}>
+            <div className="flex items-center justify-between">
+              <div className="pl-5 pr-2 py-5">
+                <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: RED }}>The map of the movement</div>
+                <div className="text-white font-bold text-sm mt-1.5">Exploring network states?</div>
+                <div className="text-neutral-400 text-xs mt-1">{NETWORK_STATES.length} startup societies, live stats from our network.</div>
+                <div className="text-white text-xs font-semibold mt-3 flex items-center gap-1.5">See the map <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" /></div>
+              </div>
+              <div className="shrink-0 pr-2"><GlobeArt size={130} /></div>
+            </div>
+          </button>
         </div>
+      </div>
+    );
+  }
+
+  if (view === "publicStates") {
+    const q = nsSearch.toLowerCase();
+    const dir = NETWORK_STATES
+      .filter(x => nsType === "All" || (nsType === "Other" ? !["Startup Society", "Popup Village", "Startup City", "SEZ"].includes(x.t) : x.t === nsType))
+      .filter(x => !q || [x.n, x.l, x.t, x.d].some(v => v.toLowerCase().includes(q)));
+    const rising = NETWORK_STATES.filter(x => x.r);
+    const placeCounts = places.map(pl => ({ place: pl, count: activeFounders.filter(f => f.networkState === pl).length }));
+    return (
+      <div className="min-h-screen bg-neutral-50" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div style={{ background: BLACK }} className="text-white">
+          <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full" style={{ background: RED }} />
+              <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-neutral-400">Curious Ventures</span>
+            </div>
+            <button onClick={() => setView("landing")} className="text-xs text-neutral-400 hover:text-white">← Curious House</button>
+          </div>
+          <div className="max-w-5xl mx-auto px-5 pt-10 pb-14">
+            <div className="flex items-start justify-between gap-6">
+              <h1 className="text-3xl sm:text-5xl font-extrabold leading-tight max-w-3xl">Talent is leaving cities and joining networks. We invest where it lands.</h1>
+              <div className="hidden md:block shrink-0 -mt-2"><GlobeArt size={190} /></div>
+            </div>
+            <p className="mt-5 text-neutral-300 max-w-2xl text-sm sm:text-base leading-relaxed">Network states — startup societies, popup villages, special economic zones — are pulling the world's most ambitious builders into dense physical communities. Curious Ventures lives inside them. We meet founders months before their rounds hit anyone's inbox. We think this is the biggest sourcing edge in early-stage venture right now, and we are unapologetically bullish.</p>
+            <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { k: "Founders met", v: pubStats.met },
+                { k: "Network states covered", v: pubStats.states },
+                { k: "Raising right now", v: pubStats.raising },
+                { k: "Raised by the network", v: fmtMoney(pubStats.raised) },
+              ].map(x => (
+                <div key={x.k} className="rounded-lg p-4" style={{ background: "#161616" }}>
+                  <div className="text-2xl font-extrabold" style={{ color: RED }}>{x.v}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-neutral-400 mt-1">{x.k}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-neutral-500 mt-2">Live numbers from Curious House, our founder network.</p>
+          </div>
+        </div>
+
+        <div className="max-w-5xl mx-auto px-5 py-10">
+          <h2 className="text-lg font-bold tracking-tight">Where we're embedded</h2>
+          <p className="text-sm text-neutral-500 mt-0.5">The archipelago — communities we source from in person.</p>
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {placeCounts.map(x => (
+              <div key={x.place} className="bg-white border border-neutral-200 rounded-lg p-4">
+                <div className="font-semibold text-sm flex items-center gap-1.5"><MapPin size={13} style={{ color: RED }} /> {x.place}</div>
+                <div className="text-xs text-neutral-500 mt-1">{x.count} founder{x.count === 1 ? "" : "s"} met</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-10">
+            <h2 className="text-lg font-bold tracking-tight">Rising states we're watching</h2>
+            <p className="text-sm text-neutral-500 mt-0.5">New societies coming online — where we expect the next wave of founders.</p>
+            <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+              {rising.map(x => (
+                <div key={x.n} className="min-w-[220px] bg-white border border-neutral-200 rounded-lg p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Rising</span>
+                  <div className="font-semibold text-sm mt-2">{x.n}</div>
+                  <div className="text-[11px] text-neutral-400">{x.l}</div>
+                  <div className="text-xs text-neutral-600 mt-1.5 leading-relaxed">{x.d}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-10">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold tracking-tight">The map of the movement</h2>
+                <p className="text-sm text-neutral-500 mt-0.5">{NETWORK_STATES.length} startup societies worldwide, and counting.</p>
+              </div>
+              <input value={nsSearch} onChange={e => setNsSearch(e.target.value)} placeholder="Search society or place…"
+                className="text-sm border border-neutral-200 rounded-md px-3 py-2 bg-white focus:outline-none focus:border-neutral-900 w-full sm:w-64" />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {NS_TYPES.map(t => (
+                <button key={t} onClick={() => setNsType(t)}
+                  className={`text-xs px-3 py-1.5 rounded-full border ${nsType === t ? "text-white border-transparent" : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-900"}`}
+                  style={nsType === t ? { background: BLACK } : {}}>{t}</button>
+              ))}
+            </div>
+            <div className="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {dir.map(x => (
+                <div key={x.n} className="bg-white border border-neutral-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-sm">{x.n}</div>
+                    {x.r && <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full text-white shrink-0" style={{ background: RED }}>Rising</span>}
+                  </div>
+                  <div className="text-[11px] text-neutral-400 mt-0.5">{x.t} · {x.l}</div>
+                  <div className="text-xs text-neutral-600 mt-1.5 leading-relaxed">{x.d}</div>
+                </div>
+              ))}
+              {dir.length === 0 && <div className="text-sm text-neutral-400 col-span-full py-8 text-center">No societies match that search.</div>}
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-3">Directory sourced from the community-maintained dashboard at ns.com.</p>
+          </div>
+
+          <div className="mt-12 rounded-2xl p-6 sm:p-8 text-white" style={{ background: BLACK }}>
+            <h2 className="text-xl sm:text-2xl font-extrabold">This is where we invest. Come inside.</h2>
+            <p className="text-sm text-neutral-300 mt-2 max-w-2xl">If you're building from a network state, we want to track you. If you're an investor, our deal flow is live. If you're an LP or just network-state-curious, the thesis is public.</p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button onClick={() => { setView("founderRequest"); setReqError(""); }} className="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>I'm a founder →</button>
+              <button onClick={() => { setView("investorLogin"); setInvLoginError(""); }} className="px-5 py-2.5 rounded-md text-sm font-semibold bg-white text-neutral-900">I'm an investor →</button>
+              <a href="https://soodgen.substack.com" target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 rounded-md text-sm font-semibold border border-neutral-600 hover:border-white">Read the thesis →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "investorLogin") {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-sm">
+          <Brand sub="Investor access" />
+          <div className="bg-white border border-neutral-200 rounded-lg p-5 mt-6 space-y-3">
+            <div>
+              <span className="text-[11px] font-semibold tracking-widest uppercase text-neutral-500">Email</span>
+              <input className="w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900" value={invLoginEmail} onChange={e => setInvLoginEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && investorLogin()} placeholder="you@fund.com" autoFocus />
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold tracking-widest uppercase text-neutral-500">Password</span>
+              <input type="password" className="w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900" value={invLoginPass} onChange={e => setInvLoginPass(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && investorLogin()} placeholder="••••••••" />
+            </div>
+            {invLoginError && <p className="text-xs" style={{ color: RED }}>{invLoginError}</p>}
+            <button onClick={investorLogin} className="w-full py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: BLACK }}>Log in</button>
+            <p className="text-[11px] text-neutral-400 text-center">Curious Ventures creates your login. Forgot it, just ask them.</p>
+          </div>
+          <div className="bg-white border border-neutral-200 rounded-lg p-4 mt-3 text-center">
+            <p className="text-xs text-neutral-500">Want access to the deal flow?</p>
+            <button onClick={() => { setView("investorRequest"); setInvReqError(""); }} className="text-sm font-semibold mt-1" style={{ color: RED }}>Request access →</button>
+          </div>
+          <button onClick={() => setView("landing")} className="block mx-auto mt-4 text-xs text-neutral-400 hover:text-neutral-900">← Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "investorRequest") {
+    const label = "text-[11px] font-semibold tracking-widest uppercase text-neutral-500";
+    const input = "w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900";
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-md">
+          <Brand sub="Investor access request" />
+          <div className="bg-white border border-neutral-200 rounded-lg p-5 mt-6">
+            <p className="text-sm text-neutral-600">Tell us who you are and pick a password. Once Curious Ventures approves you, log in with this email and password to see the live deal flow.</p>
+            <div className="grid sm:grid-cols-2 gap-3 mt-4">
+              <div><span className={label}>Your name *</span><input className={input} value={invReq.name} onChange={e => setInvReq({ ...invReq, name: e.target.value })} placeholder="Jane Doe" autoFocus /></div>
+              <div><span className={label}>Firm / fund</span><input className={input} value={invReq.firm} onChange={e => setInvReq({ ...invReq, firm: e.target.value })} placeholder="Fund name or angel" /></div>
+              <div className="sm:col-span-2"><span className={label}>What you invest in</span><input className={input} value={invReq.focus} onChange={e => setInvReq({ ...invReq, focus: e.target.value })} placeholder="Consumer AI, crypto consumer, pre-seed…" /></div>
+              <div><span className={label}>Typical check</span><input className={input} value={invReq.checkSize} onChange={e => setInvReq({ ...invReq, checkSize: e.target.value })} placeholder="$25K–$100K" /></div>
+              <div><span className={label}>Email *</span><input className={input} type="email" value={invReq.email} onChange={e => setInvReq({ ...invReq, email: e.target.value })} placeholder="you@fund.com" /></div>
+              <div className="sm:col-span-2"><span className={label}>Pick a password *</span><input className={input} value={invReq.password} onChange={e => setInvReq({ ...invReq, password: e.target.value })} placeholder="Simple password you'll remember" /></div>
+            </div>
+            {invReqError && <p className="text-xs mt-3" style={{ color: RED }}>{invReqError}</p>}
+            <button onClick={submitInvestorRequest} className="w-full mt-4 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>Request access</button>
+          </div>
+          <button onClick={() => setView("investorLogin")} className="block mx-auto mt-4 text-xs text-neutral-400 hover:text-neutral-900">← Back to login</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "investorRequestSent") {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-md text-center">
+          <Brand sub="Request received" />
+          <div className="bg-white border border-neutral-200 rounded-lg p-8 mt-6">
+            <CheckCircle2 size={32} className="mx-auto" style={{ color: RED }} />
+            <h2 className="text-lg font-bold mt-3">You're in the queue</h2>
+            <p className="text-sm text-neutral-500 mt-2">Thanks — Curious Ventures will review and approve you. Once you're in, log in with the email and password you just chose to see the deal flow.</p>
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button onClick={() => { setView("investorLogin"); setInvLoginError(""); }} className="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>Log in</button>
+              <button onClick={() => setView("landing")} className="px-5 py-2.5 rounded-md text-sm font-semibold border border-neutral-300 hover:border-neutral-900">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "investorHome" && inv) {
+    return (
+      <div className="min-h-screen bg-neutral-50" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <header className="bg-white border-b border-neutral-200 sticky top-0 z-20">
+          <div className="max-w-6xl mx-auto px-5 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full" style={{ background: RED }} />
+              <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-neutral-500">Curious House · Deal flow</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-neutral-500 hidden sm:inline">{inv.name}{inv.firm ? ` · ${inv.firm}` : ""}</span>
+              <button onClick={refetchData} className="p-2 text-neutral-400 hover:text-neutral-900" title="Refresh"><RefreshCw size={14} /></button>
+              <button onClick={() => { setInv(null); setView("landing"); }} className="p-2 text-neutral-400 hover:text-neutral-900" title="Log out"><LogOut size={14} /></button>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-6xl mx-auto px-5 py-6">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { k: "Startups in flow", v: activeFounders.filter(f => f.profileComplete !== false).length },
+              { k: "Raising right now", v: activeFounders.filter(f => f.fundingStatus === "Raising now").length },
+              { k: "Raised by the network", v: fmtMoney(pubStats.raised) },
+            ].map(x => (
+              <div key={x.k} className="bg-white border border-neutral-200 rounded-lg p-4">
+                <div className="text-xl font-extrabold" style={{ color: RED }}>{x.v}</div>
+                <div className="text-[11px] uppercase tracking-wide text-neutral-400 mt-0.5">{x.k}</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-6 mb-4">
+            <input value={invSearch} onChange={e => setInvSearch(e.target.value)} placeholder="Search deals…"
+              className="text-sm border border-neutral-200 rounded-md px-3 py-2 bg-white focus:outline-none focus:border-neutral-900 w-full sm:w-56" />
+            <select value={fCat} onChange={e => setFCat(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+              <option value="">Category: all</option>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={fStage} onChange={e => setFStage(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+              <option value="">Stage: all</option>{STAGES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={fFund} onChange={e => setFFund(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+              <option value="">Funding: all</option>{FUNDING_STATUS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={fPlace} onChange={e => setFPlace(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+              <option value="">Place: all</option>{places.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {(filtersOn || invSearch) && <button onClick={() => { clearFilters(); setInvSearch(""); }} className="text-xs font-semibold" style={{ color: RED }}>Clear</button>}
+          </div>
+          <div className="space-y-3">
+            {dealFlow.map(f => {
+              const imgs = cardImages[f.id] || [];
+              const requested = hasRequestedConnect(f.id);
+              return (
+                <div key={f.id} className="bg-white border border-neutral-200 rounded-lg p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold">{f.startupName || f.founderName}</span>
+                        {f.fundingStatus === "Raising now" && <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Raising now</span>}
+                        {f.fundingStatus === "Funded" && <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-900 text-white">Funded</span>}
+                      </div>
+                      <div className="text-sm text-neutral-600 mt-0.5">{f.founderName}{f.oneLiner ? ` — ${f.oneLiner}` : ""}</div>
+                      <div className="text-xs text-neutral-400 mt-1">{[f.networkState, f.category, f.stage].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <button onClick={() => requestConnect(f)} disabled={requested}
+                      className={`px-4 py-2 rounded-md text-xs font-semibold ${requested ? "bg-neutral-100 text-neutral-400" : "text-white"}`}
+                      style={requested ? {} : { background: RED }}>
+                      {requested ? "Intro requested ✓" : "Request intro"}
+                    </button>
+                  </div>
+                  {imgs.length > 0 && (
+                    <div className="flex gap-2 mt-3 overflow-x-auto">
+                      {imgs.map((src, i) => <img key={i} src={src} alt="" className="h-24 rounded-md object-cover" />)}
+                    </div>
+                  )}
+                  {f.fundingStatus === "Raising now" && (
+                    <div className="mt-3 pt-3 border-t border-neutral-100 text-xs text-neutral-600 space-y-1">
+                      <div className="font-semibold text-neutral-900">{f.currentRoundType || "Round"}{f.currentInstrument ? ` · ${f.currentInstrument}` : ""}{f.currentTarget ? ` · raising ${fmtMoney(f.currentTarget)}` : ""}{f.currentValuation ? ` at ${fmtMoney(f.currentValuation)}` : ""}{f.currentEquityPct ? ` (${f.currentEquityPct}%)` : ""}</div>
+                      {Number(f.currentTarget) > 0 && (
+                        <div className="h-1.5 rounded-full bg-neutral-100 overflow-hidden max-w-xs">
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100)}%`, background: RED }} />
+                        </div>
+                      )}
+                      {(f.currentInvestors || []).length > 0 && <div>{(f.currentInvestors || []).map(iv2 => `${iv2.name} (${iv2.status}${iv2.amount ? `, ${fmtMoney(iv2.amount)}` : ""})`).join(" · ")}</div>}
+                    </div>
+                  )}
+                  {(f.previousRounds || []).length > 0 && (
+                    <div className="mt-2 text-xs text-neutral-500">Previously: {(f.previousRounds || []).map(r => `${r.type || "Round"} ${fmtMoney(r.amount)}${r.valuation ? ` at ${fmtMoney(r.valuation)}` : ""}${r.year ? ` (${r.year})` : ""}`).join(" · ")}</div>
+                  )}
+                  {f.latestUpdate && <div className="mt-2 text-xs text-neutral-600"><span className="font-semibold text-neutral-900">Latest:</span> {f.latestUpdate}</div>}
+                  <div className="mt-3 flex items-center gap-3">
+                    {f.website && <a href={f.website} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold flex items-center gap-1" style={{ color: RED }}><ExternalLink size={11} /> Website</a>}
+                    {f.twitter && <a href={`https://x.com/${(f.twitter || "").replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold flex items-center gap-1 text-neutral-600 hover:text-neutral-900"><ExternalLink size={11} /> X</a>}
+                    {f.appLink && <a href={f.appLink} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold flex items-center gap-1 text-neutral-600 hover:text-neutral-900"><ExternalLink size={11} /> App</a>}
+                    {f.docsLink && <a href={f.docsLink} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold flex items-center gap-1 text-neutral-600 hover:text-neutral-900"><ExternalLink size={11} /> Deck</a>}
+                  </div>
+                </div>
+              );
+            })}
+            {dealFlow.length === 0 && <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">No deals match those filters.</div>}
+          </div>
+          <p className="text-[11px] text-neutral-400 mt-6 text-center">Intros route through Curious Ventures — tap "Request intro" and we'll connect you.</p>
+        </main>
       </div>
     );
   }
@@ -1201,6 +1706,13 @@ export default function CuriousDashboard() {
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: "#f59e0b" }}>{pinnedFounders.length}</span>
               )}
             </button>
+            <button onClick={() => setTab("investors")}
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "investors" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
+              <DollarSign size={15} /><span className="hidden sm:inline">Investors</span>
+              {pendingInvestors.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: RED }}>{pendingInvestors.length}</span>
+              )}
+            </button>
             <button onClick={() => setTab("requests")}
               className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "requests" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
               <Clock size={15} /><span className="hidden sm:inline">Requests</span>
@@ -1409,7 +1921,7 @@ export default function CuriousDashboard() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button onClick={() => copyText(inviteMsg, f.id + "-nudge")} className="text-xs px-2.5 py-1.5 rounded-md border border-neutral-200 hover:border-neutral-900">{copied === f.id + "-nudge" ? "Copied!" : "Copy nudge"}</button>
-                          {f.email && <a href={checkInEmail(f)} className="text-xs px-2.5 py-1.5 rounded-md text-white" style={{ background: BLACK }}>Email</a>}
+                          {f.email && <a href={checkInEmail(f)} target="_blank" rel="noopener noreferrer" className="text-xs px-2.5 py-1.5 rounded-md text-white" style={{ background: BLACK }}>Email</a>}
                         </div>
                       </div>
                     );
@@ -1430,7 +1942,7 @@ export default function CuriousDashboard() {
                         <span className="text-xs text-neutral-400 ml-2">due {fmtDate(f.checkInDate)}</span>
                       </button>
                       <div className="flex items-center gap-2">
-                        {f.email && <a href={checkInEmail(f)} className="text-xs px-2.5 py-1.5 rounded-md border border-neutral-200 hover:border-neutral-900">Email</a>}
+                        {f.email && <a href={checkInEmail(f)} target="_blank" rel="noopener noreferrer" className="text-xs px-2.5 py-1.5 rounded-md border border-neutral-200 hover:border-neutral-900">Email</a>}
                         <button onClick={() => markCheckedIn(f.id)} className="text-xs px-2.5 py-1.5 rounded-md text-white" style={{ background: BLACK }}>Mark checked in</button>
                       </div>
                     </div>
@@ -1518,7 +2030,7 @@ export default function CuriousDashboard() {
         {tab === "founders" && (
           <div>
             <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-              <h2 className="text-xl font-bold tracking-tight">All founders ({founders.length})</h2>
+              <h2 className="text-xl font-bold tracking-tight">All founders ({filtered.length}{filtersOn || search ? ` of ${activeFounders.length}` : ""})</h2>
               <div className="flex items-center gap-2">
                 {activeFounders.some(f => f.email) && (
                   <button onClick={() => emailGroup(activeFounders, "general")} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900">
@@ -1538,7 +2050,32 @@ export default function CuriousDashboard() {
               </div>
             ) : (
               <div className="space-y-3">
-                {filtered.map(f => {
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <select value={fCat} onChange={e => setFCat(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+                <option value="">Category: all</option>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={fStage} onChange={e => setFStage(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+                <option value="">Stage: all</option>
+                {STAGES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={fFund} onChange={e => setFFund(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+                <option value="">Funding: all</option>
+                {FUNDING_STATUS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={fPlace} onChange={e => setFPlace(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+                <option value="">Place: all</option>
+                {places.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={fSort} onChange={e => setFSort(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+                <option value="updated">Sort: recently updated</option>
+                <option value="newest">Sort: newest</option>
+                <option value="raising">Sort: raising first</option>
+                <option value="az">Sort: A–Z</option>
+              </select>
+              {filtersOn && <button onClick={clearFilters} className="text-xs font-semibold" style={{ color: RED }}>Clear filters</button>}
+            </div>
+                            {filtered.map(f => {
                   const pending = f.profileComplete === false;
                   const loginMsg = pending
                     ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}`
@@ -1890,6 +2427,78 @@ export default function CuriousDashboard() {
               </div>
             )}
             <p className="text-[11px] text-neutral-400 mt-3">Removing a place won't change founders already tagged with it — they keep the label, it just stops appearing as a new option.</p>
+          </div>
+        )}
+
+        {tab === "investors" && (
+          <div>
+            <div className="mb-5">
+              <h2 className="text-xl font-bold tracking-tight">Investors ({activeInvestors.length})</h2>
+              <p className="text-sm text-neutral-500 mt-0.5">Approve access requests, see your investor network, and handle intro requests.</p>
+            </div>
+
+            {pendingInvestors.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-bold mb-2">Access requests ({pendingInvestors.length})</h3>
+                <div className="space-y-2">
+                  {pendingInvestors.map(i => (
+                    <div key={i.id} className="bg-white border border-neutral-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm">{i.name}{i.firm ? ` · ${i.firm}` : ""}</div>
+                        <div className="text-xs text-neutral-500 mt-0.5">{[i.focus, i.checkSize].filter(Boolean).join(" · ") || "No focus given"}</div>
+                        <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {i.email}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => approveInvestor(i.id)} className="px-3 py-2 rounded-md text-xs font-semibold text-white" style={{ background: RED }}>Approve</button>
+                        <button onClick={() => declineInvestor(i.id)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900">Decline</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {connects.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-bold mb-2">Intro requests ({connects.length})</h3>
+                <div className="space-y-2">
+                  {connects.map(c => (
+                    <div key={c.id} className="bg-white border border-neutral-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-sm">
+                        <span className="font-semibold">{c.investorName}</span>{c.investorFirm ? ` (${c.investorFirm})` : ""} wants an intro to <span className="font-semibold">{c.startupName}</span>
+                        <span className="text-xs text-neutral-400 ml-2">{daysAgo(c.date)}</span>
+                      </div>
+                      <button onClick={() => removeConnect(c.id)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900">Mark handled</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <h3 className="text-sm font-bold mb-2">Approved investors</h3>
+            {activeInvestors.length === 0 ? (
+              <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-10 text-center text-sm text-neutral-500">
+                No investors yet. Send them to house.curiousventures.xyz — they tap "Investor Login" and request access.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {activeInvestors.map(i => (
+                  <div key={i.id} className="bg-white border border-neutral-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm">{i.name}{i.firm ? ` · ${i.firm}` : ""}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">{[i.focus, i.checkSize].filter(Boolean).join(" · ") || "No focus given"}</div>
+                      <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {i.email}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => copyText(investorApprovalMsg(i), `inv-${i.id}`)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
+                        <Copy size={12} /> {copied === `inv-${i.id}` ? "Copied!" : "Copy login msg"}
+                      </button>
+                      <button onClick={() => declineInvestor(i.id)} className="p-2 rounded-md text-neutral-400 hover:text-red-600" title="Remove investor"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
