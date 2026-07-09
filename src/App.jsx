@@ -15,6 +15,7 @@ const K_IMG = (id) => `cv-img-${id}`;
 const K_NOTE = (id) => `cv-note-${id}`;
 const K_INVESTORS = "cv-investors-v1";
 const K_CONNECTS = "cv-connects-v1";
+const K_NODES = "cv-nodes-v1";
 
 // Directory of startup societies (source: ns.com/dashboard). r = rising / newly emerging.
 const NETWORK_STATES = [
@@ -227,6 +228,18 @@ export default function CuriousDashboard() {
   const [fFund, setFFund] = useState("");
   const [fPlace, setFPlace] = useState("");
   const [fSort, setFSort] = useState("updated");
+  const [fOrigin, setFOrigin] = useState("");
+  // Network state nodes
+  const [nodes, setNodes] = useState([]);
+  const [node, setNode] = useState(null);
+  const [nodeLoginEmail, setNodeLoginEmail] = useState("");
+  const [nodeLoginPass, setNodeLoginPass] = useState("");
+  const [nodeLoginError, setNodeLoginError] = useState("");
+  const [nodeReq, setNodeReq] = useState({ stateName: "", contactName: "", email: "", password: "" });
+  const [nodeReqError, setNodeReqError] = useState("");
+  const [leadForm, setLeadForm] = useState({ founderName: "", email: "", password: "", startupName: "", oneLiner: "", metAt: "" });
+  const [leadError, setLeadError] = useState("");
+  const [leadSaved, setLeadSaved] = useState(false);
   const [search, setSearch] = useState("");
   const [adminEditingId, setAdminEditingId] = useState(null);
   const [addMode, setAddMode] = useState("full"); // full | invite
@@ -257,20 +270,21 @@ export default function CuriousDashboard() {
 
   const loadAll = async () => {
     setLoading(true);
-    let [f, a, p, iv, cn] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_ADMIN, null), sGet(K_PLACES, null), sGet(K_INVESTORS, []), sGet(K_CONNECTS, [])]);
+    let [f, a, p, iv, cn, nd] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_ADMIN, null), sGet(K_PLACES, null), sGet(K_INVESTORS, []), sGet(K_CONNECTS, []), sGet(K_NODES, [])]);
     if (!a) { a = { passcode: ADMIN_PASSCODE, createdOn: new Date().toISOString() }; await sSet(K_ADMIN, a); }
     if (!p) { p = [...DEFAULT_PLACES]; await sSet(K_PLACES, p); }
-    setFounders(f); setAdminCfg(a); setPlaces(p); setInvestors(Array.isArray(iv) ? iv : []); setConnects(Array.isArray(cn) ? cn : []); setLoading(false);
+    setFounders(f); setAdminCfg(a); setPlaces(p); setInvestors(Array.isArray(iv) ? iv : []); setConnects(Array.isArray(cn) ? cn : []); setNodes(Array.isArray(nd) ? nd : []); setLoading(false);
   };
   useEffect(() => { loadAll(); }, []);
 
   // Re-fetch latest data from Supabase (so changes from other devices appear)
   const refetchData = async () => {
-    const [f, p, iv, cn] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_PLACES, []), sGet(K_INVESTORS, []), sGet(K_CONNECTS, [])]);
+    const [f, p, iv, cn, nd] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_PLACES, []), sGet(K_INVESTORS, []), sGet(K_CONNECTS, []), sGet(K_NODES, [])]);
     setFounders(f);
     if (Array.isArray(p)) setPlaces(p);
     if (Array.isArray(iv)) setInvestors(iv);
     if (Array.isArray(cn)) setConnects(cn);
+    if (Array.isArray(nd)) setNodes(nd);
   };
 
   // While in the admin dashboard, keep data fresh: on entry, on window focus, and on a light timer.
@@ -332,7 +346,10 @@ export default function CuriousDashboard() {
     } catch (e) { console.error("backup failed", e); alert("Backup failed — check your connection and try again."); }
   };
   // Pin / track a startup we like (shows up on the Tracked page)
-  const togglePin = (id) => mutateFounders(prev => prev.map(x => x.id === id ? { ...x, pinned: !x.pinned } : x));
+  const togglePin = (id) => node
+    ? mutateFounders(prev => prev.map(x => x.id === id ? { ...x, nodeHighlight: x.nodeHighlight === node.stateName ? "" : node.stateName } : x))
+    : mutateFounders(prev => prev.map(x => x.id === id ? { ...x, pinned: !x.pinned } : x));
+  const isStarred = (f) => node ? f.nodeHighlight === node.stateName : !!f.pinned;
   // Shareable startup card
   const [shareFounder, setShareFounder] = useState(null);
   const [shareImg, setShareImg] = useState(null);
@@ -363,7 +380,12 @@ export default function CuriousDashboard() {
       } else { downloadCard(); }
     }, "image/png");
   };
-  const pinnedFounders = useMemo(() => founders.filter(f => f.pinned), [founders]);
+  // Node sessions see only their state's slice; their "star" is a highlight surfaced to the main admin.
+  const inNodeScope = (f) => !node || f.networkState === node.stateName || f.origin === node.stateName;
+  const pinnedFounders = useMemo(() => node
+    ? founders.filter(f => f.approved !== false && f.nodeHighlight === node.stateName)
+    : founders.filter(f => f.pinned), [founders, node]);
+  const nodeHighlighted = useMemo(() => founders.filter(f => f.approved !== false && f.nodeHighlight), [founders]);
 
   const addPlace = async () => {
     const name = newPlace.trim();
@@ -375,8 +397,8 @@ export default function CuriousDashboard() {
   const removePlace = async (name) => { await persistPlaces(places.filter(p => p !== name)); };
   const placeUsage = (name) => founders.filter(f => f.networkState === name).length;
 
-  const activeFounders = useMemo(() => founders.filter(f => f.approved !== false), [founders]);
-  const pendingRequests = useMemo(() => founders.filter(f => f.approved === false).sort((a, b) => new Date(b.addedOn) - new Date(a.addedOn)), [founders]);
+  const activeFounders = useMemo(() => founders.filter(f => f.approved !== false && inNodeScope(f)), [founders, node]);
+  const pendingRequests = useMemo(() => founders.filter(f => f.approved === false && inNodeScope(f)).sort((a, b) => new Date(b.addedOn) - new Date(a.addedOn)), [founders, node]);
 
   const stats = useMemo(() => {
     const total = activeFounders.length;
@@ -421,7 +443,8 @@ export default function CuriousDashboard() {
       .filter(f => !fCat || f.category === fCat)
       .filter(f => !fStage || f.stage === fStage)
       .filter(f => !fFund || f.fundingStatus === fFund)
-      .filter(f => !fPlace || f.networkState === fPlace);
+      .filter(f => !fPlace || f.networkState === fPlace)
+      .filter(f => !fOrigin || (fOrigin === "__direct" ? !f.origin : fOrigin === "__highlighted" ? !!f.nodeHighlight : f.origin === fOrigin));
     const by = {
       updated: (a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated),
       newest: (a, b) => new Date(b.addedOn) - new Date(a.addedOn),
@@ -429,9 +452,9 @@ export default function CuriousDashboard() {
       az: (a, b) => (a.startupName || a.founderName || "").localeCompare(b.startupName || b.founderName || ""),
     };
     return list.sort(by[fSort] || by.updated);
-  }, [activeFounders, search, fCat, fStage, fFund, fPlace, fSort]);
-  const filtersOn = !!(fCat || fStage || fFund || fPlace);
-  const clearFilters = () => { setFCat(""); setFStage(""); setFFund(""); setFPlace(""); };
+  }, [activeFounders, search, fCat, fStage, fFund, fPlace, fSort, fOrigin]);
+  const filtersOn = !!(fCat || fStage || fFund || fPlace || fOrigin);
+  const clearFilters = () => { setFCat(""); setFStage(""); setFFund(""); setFPlace(""); setFOrigin(""); };
 
   const founderLogin = async () => {
     const email = cleanEmail(loginEmail);
@@ -566,6 +589,7 @@ export default function CuriousDashboard() {
         profileComplete: !inviteOnly, completedOn: inviteOnly ? "" : now,
         imageCount: formImages.length,
         updates: (!inviteOnly && form.latestUpdate.trim()) ? [{ text: form.latestUpdate.trim(), date: now, by: "admin" }] : [] };
+      if (node) { entry.networkState = node.stateName; entry.origin = node.stateName; entry.originNodeId = node.id; }
       await mutateFounders(prev => [entry, ...prev]);
     }
     if (formImages.length > 0) await sSet(K_IMG(id), formImages);
@@ -707,18 +731,94 @@ export default function CuriousDashboard() {
   const hasRequestedConnect = (fid) => inv && connects.some(c => c.investorId === inv.id && c.founderId === fid);
   const removeConnect = async (id) => { await mutateConnects(prev => prev.filter(c => c.id !== id)); };
   const investorApprovalMsg = (i) => `Hi ${(i.name || "there").split(" ")[0]},\n\nYou're approved on Curious House — the live deal flow from Curious Ventures' network state sourcing.\n\nLog in at house.curiousventures.xyz with the email and password you chose. You'll see every startup in our current flow, including who's raising right now. Tap "Request intro" on anything interesting and we'll connect you directly.\n\n— Curious Ventures`;
+  // ---- Network state nodes ----
+  const mutateNodes = async (updater) => {
+    const latest = await sGet(K_NODES, []);
+    const next = updater(Array.isArray(latest) ? latest : []);
+    setNodes(next);
+    await sSet(K_NODES, next);
+    return next;
+  };
+  const pendingNodes = useMemo(() => nodes.filter(n => n.approved === false).sort((a, b) => new Date(b.requestedOn) - new Date(a.requestedOn)), [nodes]);
+  const activeNodes = useMemo(() => nodes.filter(n => n.approved !== false), [nodes]);
+  const nodeOriginCount = (stateName) => founders.filter(f => f.origin === stateName).length;
+  const submitNodeRequest = async () => {
+    const email = cleanEmail(nodeReq.email);
+    if (!nodeReq.stateName.trim()) { setNodeReqError("Please add your network state or community name."); return; }
+    if (!nodeReq.contactName.trim()) { setNodeReqError("Please add a contact person."); return; }
+    if (!email || !email.includes("@")) { setNodeReqError("Please add a valid email."); return; }
+    if (!nodeReq.password || nodeReq.password.length < 4) { setNodeReqError("Pick a password (4+ characters)."); return; }
+    const latest = await sGet(K_NODES, []);
+    if ((Array.isArray(latest) ? latest : []).some(n => cleanEmail(n.email) === email)) { setNodeReqError("That email already has access or a pending request."); return; }
+    const entry = { ...nodeReq, stateName: nodeReq.stateName.trim(), email, id: uid(), approved: false, requestedOn: new Date().toISOString() };
+    await mutateNodes(prev => [entry, ...prev]);
+    setNodeReq({ stateName: "", contactName: "", email: "", password: "" });
+    setNodeReqError("");
+    setView("nodeRequestSent");
+  };
+  const approveNode = async (id) => {
+    const nd = nodes.find(n => n.id === id);
+    await mutateNodes(prev => prev.map(n => n.id === id ? { ...n, approved: true, approvedOn: new Date().toISOString() } : n));
+    // Make sure the state exists as a place so founder requests can route to it.
+    if (nd && nd.stateName && !places.includes(nd.stateName)) await persistPlaces([...places, nd.stateName]);
+  };
+  const declineNode = async (id) => { await mutateNodes(prev => prev.filter(n => n.id !== id)); };
+  const nodeLogin = async () => {
+    const email = cleanEmail(nodeLoginEmail);
+    const latest = await sGet(K_NODES, []);
+    const list = Array.isArray(latest) ? latest : [];
+    setNodes(list);
+    const n = list.find(x => cleanEmail(x.email) === email);
+    if (!n || !n.password || n.password !== nodeLoginPass) { setNodeLoginError("Email or password not recognized. Check with the Curious Ventures team."); return; }
+    if (n.approved === false) { setNodeLoginError("Your request is still pending approval. We'll be in touch once you're in."); return; }
+    setNodeLoginError("");
+    setNode(n);
+    await refetchData();
+    setTab("dashboard");
+    setView("admin");
+  };
+  const nodeAddLead = async () => {
+    if (!node) return;
+    const email = cleanEmail(leadForm.email);
+    if (!leadForm.founderName.trim()) { setLeadError("Please add the founder's name."); return; }
+    if (!email || !email.includes("@")) { setLeadError("Please add a valid founder email."); return; }
+    if (!leadForm.password || leadForm.password.length < 4) { setLeadError("Set a starting password (4+ characters) — the founder logs in with it."); return; }
+    const latest = await sGet(K_FOUNDERS, []);
+    if ((Array.isArray(latest) ? latest : []).some(f => cleanEmail(f.email) === email)) { setLeadError("A founder with that email is already in the system."); return; }
+    const now = new Date().toISOString();
+    const entry = {
+      id: uid(), founderName: leadForm.founderName.trim(), startupName: leadForm.startupName.trim(), oneLiner: leadForm.oneLiner.trim(),
+      email, password: leadForm.password, networkState: node.stateName, metAt: leadForm.metAt.trim() || node.stateName,
+      origin: node.stateName, originNodeId: node.id,
+      approved: true, profileComplete: false, addedOn: now, lastUpdated: now, updates: [], currentInvestors: [], previousRounds: [],
+    };
+    await mutateFounders(prev => [entry, ...prev]);
+    setLeadForm({ founderName: "", email: "", password: "", startupName: "", oneLiner: "", metAt: "" });
+    setLeadError("");
+    setLeadSaved(true); setTimeout(() => setLeadSaved(false), 2500);
+  };
+  const nodePipeline = useMemo(() => !node ? [] : founders
+    .filter(f => f.approved !== false)
+    .filter(f => f.origin === node.stateName || f.networkState === node.stateName)
+    .sort((a, b) => new Date(b.addedOn) - new Date(a.addedOn)), [founders, node]);
+  const nodePendingReqs = useMemo(() => !node ? [] : founders
+    .filter(f => f.approved === false && f.networkState === node.stateName)
+    .sort((a, b) => new Date(b.addedOn) - new Date(a.addedOn)), [founders, node]);
+  const nodeApprovalMsg = (n) => `Hi ${(n.contactName || "there").split(" ")[0]},\n\n${n.stateName} is live as a trusted node on Curious House.\n\nLog in at house.curiousventures.xyz — tap "Network State Login" and use the email and password you chose. From your console you can add founder leads from your community, approve founders who request access via ${n.stateName}, and track your pipeline.\n\nEvery deal you originate carries your state's name through to our investor network.\n\n— Curious Ventures`;
+  const leadInviteMsg = (f) => `Hi ${(f.founderName || "there").split(" ")[0]},\n\nYou've been added to Curious House — Curious Ventures' founder network — via ${f.origin || f.networkState}.\n\nLog in at house.curiousventures.xyz with:\nEmail: ${f.email}\nPassword: ${f.password}\n\nTakes 2 minutes to complete your profile — your progress goes in front of the LPs and investors in the network.\n\n— Curious Ventures`;
+
   // Investor deal board list (approved founders with a completed profile)
   const dealFlow = useMemo(() => {
     const q = invSearch.toLowerCase();
     return activeFounders
       .filter(f => f.profileComplete !== false)
+      .filter(f => f.fundingStatus === "Raising now") // investors see available deals only
       .filter(f => !q || [f.startupName, f.founderName, f.networkState, f.category, f.oneLiner].some(v => (v || "").toLowerCase().includes(q)))
       .filter(f => !fCat || f.category === fCat)
       .filter(f => !fStage || f.stage === fStage)
-      .filter(f => !fFund || f.fundingStatus === fFund)
       .filter(f => !fPlace || f.networkState === fPlace)
-      .sort((a, b) => (b.fundingStatus === "Raising now") - (a.fundingStatus === "Raising now") || new Date(b.lastUpdated) - new Date(a.lastUpdated));
-  }, [activeFounders, invSearch, fCat, fStage, fFund, fPlace]);
+      .sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
+  }, [activeFounders, invSearch, fCat, fStage, fPlace]);
   // Live stats for the public page
   const pubStats = useMemo(() => ({
     met: activeFounders.length,
@@ -1099,6 +1199,16 @@ export default function CuriousDashboard() {
                 <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
               </div>
             </button>
+            <button onClick={() => { setView("nodeLogin"); setNodeLoginError(""); setNodeLoginEmail(""); setNodeLoginPass(""); }}
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-sm flex items-center gap-2"><MapPin size={15} style={{ color: RED }} /> Network State Login</div>
+                  <div className="text-xs text-neutral-500 mt-1">Trusted nodes: add leads from your community and track your pipeline.</div>
+                </div>
+                <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
+              </div>
+            </button>
             <button onClick={() => { setView("adminGate"); setGateError(""); setPassInput(""); }}
               className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
               <div className="flex items-center justify-between">
@@ -1150,12 +1260,13 @@ export default function CuriousDashboard() {
               <div className="hidden md:block shrink-0 -mt-2"><GlobeArt size={190} /></div>
             </div>
             <p className="mt-5 text-neutral-300 max-w-2xl text-sm sm:text-base leading-relaxed">Network states — startup societies, popup villages, special economic zones — are pulling the world's most ambitious builders into dense physical communities. Curious Ventures lives inside them. We meet founders months before their rounds hit anyone's inbox. We think this is the biggest sourcing edge in early-stage venture right now, and we are unapologetically bullish.</p>
-            <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className={`mt-8 grid grid-cols-2 gap-3 ${activeNodes.length > 0 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
               {[
                 { k: "Founders met", v: pubStats.met },
                 { k: "Network states covered", v: pubStats.states },
                 { k: "Raising right now", v: pubStats.raising },
                 { k: "Raised by the network", v: fmtMoney(pubStats.raised) },
+                ...(activeNodes.length > 0 ? [{ k: "Trusted nodes", v: activeNodes.length }] : []),
               ].map(x => (
                 <div key={x.k} className="rounded-lg p-4" style={{ background: "#161616" }}>
                   <div className="text-2xl font-extrabold" style={{ color: RED }}>{x.v}</div>
@@ -1334,8 +1445,8 @@ export default function CuriousDashboard() {
         <main className="max-w-6xl mx-auto px-5 py-6">
           <div className="grid grid-cols-3 gap-3">
             {[
-              { k: "Startups in flow", v: activeFounders.filter(f => f.profileComplete !== false).length },
-              { k: "Raising right now", v: activeFounders.filter(f => f.fundingStatus === "Raising now").length },
+              { k: "Available deals", v: dealFlow.length },
+              { k: "Combined round targets", v: fmtMoney(dealFlow.reduce((sum, f) => sum + (Number(f.currentTarget) || 0), 0)) },
               { k: "Raised by the network", v: fmtMoney(pubStats.raised) },
             ].map(x => (
               <div key={x.k} className="bg-white border border-neutral-200 rounded-lg p-4">
@@ -1352,9 +1463,6 @@ export default function CuriousDashboard() {
             </select>
             <select value={fStage} onChange={e => setFStage(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
               <option value="">Stage: all</option>{STAGES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={fFund} onChange={e => setFFund(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
-              <option value="">Funding: all</option>{FUNDING_STATUS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={fPlace} onChange={e => setFPlace(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
               <option value="">Place: all</option>{places.map(c => <option key={c} value={c}>{c}</option>)}
@@ -1375,7 +1483,7 @@ export default function CuriousDashboard() {
                         {f.fundingStatus === "Funded" && <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-900 text-white">Funded</span>}
                       </div>
                       <div className="text-sm text-neutral-600 mt-0.5">{f.founderName}{f.oneLiner ? ` — ${f.oneLiner}` : ""}</div>
-                      <div className="text-xs text-neutral-400 mt-1">{[f.networkState, f.category, f.stage].filter(Boolean).join(" · ")}</div>
+                      <div className="text-xs text-neutral-400 mt-1">{[f.networkState, f.category, f.stage].filter(Boolean).join(" · ")}{f.origin && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">Sourced by {f.origin}</span>}</div>
                     </div>
                     <button onClick={() => requestConnect(f)} disabled={requested}
                       className={`px-4 py-2 rounded-md text-xs font-semibold ${requested ? "bg-neutral-100 text-neutral-400" : "text-white"}`}
@@ -1412,10 +1520,83 @@ export default function CuriousDashboard() {
                 </div>
               );
             })}
-            {dealFlow.length === 0 && <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">No deals match those filters.</div>}
+            {dealFlow.length === 0 && <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">No open rounds right now — new deals appear here the moment a founder starts raising.</div>}
           </div>
           <p className="text-[11px] text-neutral-400 mt-6 text-center">Intros route through Curious Ventures — tap "Request intro" and we'll connect you.</p>
         </main>
+      </div>
+    );
+  }
+
+  if (view === "nodeLogin") {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-sm">
+          <Brand sub="Network state node" />
+          <div className="bg-white border border-neutral-200 rounded-lg p-5 mt-6 space-y-3">
+            <div>
+              <span className="text-[11px] font-semibold tracking-widest uppercase text-neutral-500">Node email</span>
+              <input className="w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900" value={nodeLoginEmail} onChange={e => setNodeLoginEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && nodeLogin()} placeholder="node@yourstate.xyz" autoFocus />
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold tracking-widest uppercase text-neutral-500">Password</span>
+              <input type="password" className="w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900" value={nodeLoginPass} onChange={e => setNodeLoginPass(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && nodeLogin()} placeholder="••••••••" />
+            </div>
+            {nodeLoginError && <p className="text-xs" style={{ color: RED }}>{nodeLoginError}</p>}
+            <button onClick={nodeLogin} className="w-full py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: BLACK }}>Log in</button>
+            <p className="text-[11px] text-neutral-400 text-center">One login per state — shared by the community's core team.</p>
+          </div>
+          <div className="bg-white border border-neutral-200 rounded-lg p-4 mt-3 text-center">
+            <p className="text-xs text-neutral-500">Run a network state or community?</p>
+            <button onClick={() => { setView("nodeRequest"); setNodeReqError(""); }} className="text-sm font-semibold mt-1" style={{ color: RED }}>Become a node →</button>
+          </div>
+          <button onClick={() => setView("landing")} className="block mx-auto mt-4 text-xs text-neutral-400 hover:text-neutral-900">← Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "nodeRequest") {
+    const label = "text-[11px] font-semibold tracking-widest uppercase text-neutral-500";
+    const input = "w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900";
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-md">
+          <Brand sub="Become a trusted node" />
+          <div className="bg-white border border-neutral-200 rounded-lg p-5 mt-6">
+            <p className="text-sm text-neutral-600">This login belongs to your state, not a person — the core team shares it. Once Curious Ventures approves you, you can add founder leads from your community and they flow straight to our investor network with your state's name on them.</p>
+            <div className="grid sm:grid-cols-2 gap-3 mt-4">
+              <div className="sm:col-span-2"><span className={label}>Network state / community name *</span><input className={input} value={nodeReq.stateName} onChange={e => setNodeReq({ ...nodeReq, stateName: e.target.value })} placeholder="e.g. Network School, Zu-Grama…" autoFocus /></div>
+              <div><span className={label}>Contact person *</span><input className={input} value={nodeReq.contactName} onChange={e => setNodeReq({ ...nodeReq, contactName: e.target.value })} placeholder="Who runs this login" /></div>
+              <div><span className={label}>Email *</span><input className={input} type="email" value={nodeReq.email} onChange={e => setNodeReq({ ...nodeReq, email: e.target.value })} placeholder="node@yourstate.xyz" /></div>
+              <div className="sm:col-span-2"><span className={label}>Pick a shared password *</span><input className={input} value={nodeReq.password} onChange={e => setNodeReq({ ...nodeReq, password: e.target.value })} placeholder="Your core team will share this" /></div>
+            </div>
+            {nodeReqError && <p className="text-xs mt-3" style={{ color: RED }}>{nodeReqError}</p>}
+            <button onClick={submitNodeRequest} className="w-full mt-4 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>Request node access</button>
+          </div>
+          <button onClick={() => setView("nodeLogin")} className="block mx-auto mt-4 text-xs text-neutral-400 hover:text-neutral-900">← Back to login</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "nodeRequestSent") {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-md text-center">
+          <Brand sub="Request received" />
+          <div className="bg-white border border-neutral-200 rounded-lg p-8 mt-6">
+            <CheckCircle2 size={32} className="mx-auto" style={{ color: RED }} />
+            <h2 className="text-lg font-bold mt-3">Your node request is in</h2>
+            <p className="text-sm text-neutral-500 mt-2">Curious Ventures will review and approve your state. Once you're in, log in with the email and password you chose to open your node console.</p>
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button onClick={() => { setView("nodeLogin"); setNodeLoginError(""); }} className="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style={{ background: RED }}>Log in</button>
+              <button onClick={() => setView("landing")} className="px-5 py-2.5 rounded-md text-sm font-semibold border border-neutral-300 hover:border-neutral-900">Done</button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1706,13 +1887,20 @@ export default function CuriousDashboard() {
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: "#f59e0b" }}>{pinnedFounders.length}</span>
               )}
             </button>
-            <button onClick={() => setTab("investors")}
+            {!node && <button onClick={() => setTab("nodes")}
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "nodes" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
+              <MapPin size={15} /><span className="hidden sm:inline">Nodes</span>
+              {pendingNodes.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: RED }}>{pendingNodes.length}</span>
+              )}
+            </button>}
+            {!node && <button onClick={() => setTab("investors")}
               className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "investors" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
               <DollarSign size={15} /><span className="hidden sm:inline">Investors</span>
               {pendingInvestors.length > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: RED }}>{pendingInvestors.length}</span>
               )}
-            </button>
+            </button>}
             <button onClick={() => setTab("requests")}
               className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "requests" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
               <Clock size={15} /><span className="hidden sm:inline">Requests</span>
@@ -1721,11 +1909,12 @@ export default function CuriousDashboard() {
               )}
             </button>
             <TabBtn id="add" icon={Plus}>Add founder</TabBtn>
-            <TabBtn id="places" icon={MapPin}>Places</TabBtn>
+            {!node && <TabBtn id="places" icon={MapPin}>Places</TabBtn>}
             <TabBtn id="digest" icon={Mail}>Digest</TabBtn>
-            <button onClick={downloadBackup} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Download backup"><Download size={14} /></button>
+            {node && <span className="text-[11px] font-bold px-2.5 py-1.5 rounded-md text-white mr-1" style={{ background: RED }}>{node.stateName} · Node</span>}
+            {!node && <button onClick={downloadBackup} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Download backup"><Download size={14} /></button>}
             <button onClick={refetchData} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Refresh data"><RefreshCw size={14} /></button>
-            <button onClick={() => setView("landing")} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title="Lock"><Lock size={14} /></button>
+            <button onClick={() => { setNode(null); setView("landing"); }} className="px-3 py-2.5 text-sm text-neutral-400 hover:text-neutral-900" title={node ? "Log out" : "Lock"}><Lock size={14} /></button>
           </nav>
         </div>
       </header>
@@ -1985,9 +2174,26 @@ export default function CuriousDashboard() {
         {tab === "tracked" && (
           <div>
             <div className="mb-5">
-              <h2 className="text-xl font-bold tracking-tight">Tracked startups ({pinnedFounders.length})</h2>
-              <p className="text-sm text-neutral-500 mt-0.5">Your watchlist — the startups you're keeping an eye on. Star any founder to add them here.</p>
+              <h2 className="text-xl font-bold tracking-tight">{node ? `Highlighted deals (${pinnedFounders.length})` : `Tracked startups (${pinnedFounders.length})`}</h2>
+              <p className="text-sm text-neutral-500 mt-0.5">{node ? `Deals ${node.stateName} has flagged for Curious Ventures. Star any founder to highlight them.` : "Your watchlist — the startups you're keeping an eye on. Star any founder to add them here."}</p>
             </div>
+            {!node && nodeHighlighted.length > 0 && (
+              <div className="mb-6 rounded-lg p-4" style={{ background: "#0A0A0A" }}>
+                <div className="text-[11px] font-bold tracking-[0.15em] uppercase mb-2" style={{ color: RED }}>★ Highlighted by network states</div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {nodeHighlighted.map(f => (
+                    <div key={f.id} className="bg-white rounded-lg p-3.5 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm truncate">{f.startupName || f.founderName}</div>
+                        <div className="text-xs text-neutral-500 truncate">{f.oneLiner || f.founderName}</div>
+                        <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">★ {f.nodeHighlight}</span>
+                      </div>
+                      <button onClick={() => goToFounder(f)} className="px-3 py-2 rounded-md text-xs font-medium text-white shrink-0 flex items-center gap-1.5" style={{ background: RED }}>View <ArrowRight size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {pinnedFounders.length === 0 ? (
               <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">
                 No tracked startups yet. Open the Founders tab and tap the star on anyone you want to watch.
@@ -2067,6 +2273,14 @@ export default function CuriousDashboard() {
                 <option value="">Place: all</option>
                 {places.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+              {!node && (
+                <select value={fOrigin} onChange={e => setFOrigin(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
+                  <option value="">Source: all</option>
+                  <option value="__direct">Direct</option>
+                  <option value="__highlighted">★ Highlighted by nodes</option>
+                  {[...new Set(founders.map(f => f.origin).filter(Boolean))].map(o => <option key={o} value={o}>via {o}</option>)}
+                </select>
+              )}
               <select value={fSort} onChange={e => setFSort(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
                 <option value="updated">Sort: recently updated</option>
                 <option value="newest">Sort: newest</option>
@@ -2098,7 +2312,8 @@ export default function CuriousDashboard() {
                           </div>
                           <div className="text-sm text-neutral-600 mt-1">{pending ? (f.founderName || "Hasn't logged in yet") : `${f.founderName}${f.oneLiner ? ` — ${f.oneLiner}` : ""}`}</div>
                           <div className="text-xs text-neutral-400 mt-1">{pending ? `Invited${f.metAt ? ` · Met: ${f.metAt}` : ""}` : `${f.networkState} · ${f.category} · ${f.stage}`}</div>
-                          <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {f.email || "no login email"}</div>
+                          <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {f.email || "no login email"}{f.origin && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">via {f.origin}</span>}{f.nodeHighlight && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">★ {f.nodeHighlight}</span>}</div>
+                          {f.note && <div className="text-xs text-neutral-500 mt-1.5 italic">"{f.note}" <span className="not-italic text-neutral-400">— from their request</span></div>}
                           {checkInInfo(f) && (
                             <div className="mt-1.5">
                               <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${checkInInfo(f).due ? "text-white" : "bg-amber-50 text-amber-700 border border-amber-200"}`} style={checkInInfo(f).due ? { background: RED } : {}}>
@@ -2110,8 +2325,8 @@ export default function CuriousDashboard() {
                           <LinkChips f={f} />
                         </div>
                         <div className="flex items-center gap-1">
-                          <button onClick={() => togglePin(f.id)} className={`p-2 rounded-md hover:bg-neutral-100 ${f.pinned ? "text-amber-500" : "text-neutral-400 hover:text-neutral-900"}`} title={f.pinned ? "Tracked — click to untrack" : "Track this startup"}>
-                            <Star size={15} fill={f.pinned ? "currentColor" : "none"} />
+                          <button onClick={() => togglePin(f.id)} className={`p-2 rounded-md hover:bg-neutral-100 ${isStarred(f) ? "text-amber-500" : "text-neutral-400 hover:text-neutral-900"}`} title={node ? (isStarred(f) ? "Highlighted to Curious Ventures — click to remove" : "Highlight this deal to Curious Ventures") : (f.pinned ? "Tracked — click to untrack" : "Track this startup")}>
+                            <Star size={15} fill={isStarred(f) ? "currentColor" : "none"} />
                           </button>
                           <button onClick={() => openNote(f)} className={`p-2 rounded-md hover:bg-neutral-100 relative ${(f.adminNote || f.hasAudioNote || f.checkInDate) ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-900"}`} title="Private note & check-in">
                             <StickyNote size={15} />
@@ -2386,7 +2601,7 @@ export default function CuriousDashboard() {
           </div>
         )}
 
-        {tab === "places" && (
+        {!node && tab === "places" && (
           <div className="max-w-2xl">
             <h2 className="text-xl font-bold tracking-tight mb-1">Places you've visited</h2>
             <p className="text-sm text-neutral-500 mb-6">These are the only options founders can pick from when they say where they met you. They also drive the network-state breakdown on the LP View.</p>
@@ -2430,7 +2645,64 @@ export default function CuriousDashboard() {
           </div>
         )}
 
-        {tab === "investors" && (
+        {!node && tab === "nodes" && (
+          <div>
+            <div className="mb-5">
+              <h2 className="text-xl font-bold tracking-tight">Network state nodes ({activeNodes.length})</h2>
+              <p className="text-sm text-neutral-500 mt-0.5">Trusted communities that originate deal flow. One shared login per state.</p>
+            </div>
+
+            {pendingNodes.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-bold mb-2">Node requests ({pendingNodes.length})</h3>
+                <div className="space-y-2">
+                  {pendingNodes.map(n => (
+                    <div key={n.id} className="bg-white border border-neutral-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm">{n.stateName}</div>
+                        <div className="text-xs text-neutral-500 mt-0.5">Contact: {n.contactName}</div>
+                        <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {n.email}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => approveNode(n.id)} className="px-3 py-2 rounded-md text-xs font-semibold text-white" style={{ background: RED }}>Approve node</button>
+                        <button onClick={() => declineNode(n.id)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900">Decline</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <h3 className="text-sm font-bold mb-2">Active nodes</h3>
+            {activeNodes.length === 0 ? (
+              <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-10 text-center text-sm text-neutral-500">
+                No nodes yet. When you meet a community's core team, send them to house.curiousventures.xyz → "Network State Login" → "Become a node".
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {activeNodes.map(n => (
+                  <div key={n.id} className="bg-white border border-neutral-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm flex items-center gap-2">{n.stateName}
+                        <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">{nodeOriginCount(n.stateName)} lead{nodeOriginCount(n.stateName) === 1 ? "" : "s"} originated</span>
+                      </div>
+                      <div className="text-xs text-neutral-500 mt-0.5">Contact: {n.contactName}</div>
+                      <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {n.email}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => copyText(nodeApprovalMsg(n), `node-${n.id}`)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
+                        <Copy size={12} /> {copied === `node-${n.id}` ? "Copied!" : "Copy welcome msg"}
+                      </button>
+                      <button onClick={() => declineNode(n.id)} className="p-2 rounded-md text-neutral-400 hover:text-red-600" title="Remove node"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!node && tab === "investors" && (
           <div>
             <div className="mb-5">
               <h2 className="text-xl font-bold tracking-tight">Investors ({activeInvestors.length})</h2>
