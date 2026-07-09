@@ -1174,64 +1174,63 @@ export default function CuriousDashboard() {
   }
 
   if (view === "landing") {
+    const openRounds = founders.filter(f => f.approved !== false && f.fundingStatus === "Raising now");
+    const openTarget = openRounds.reduce((sum, f) => sum + (Number(f.currentTarget) || 0), 0);
+    const statesCovered = new Set(founders.filter(f => f.approved !== false).map(f => f.networkState).filter(Boolean)).size || places.length;
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-        <div className="w-full max-w-md">
-          <Brand sub="Network State Founder Tracker" />
-          <div className="mt-8 space-y-3">
-            <button onClick={() => { setView("founderLogin"); setLoginError(""); setLoginEmail(""); setLoginPass(""); }}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-sm flex items-center gap-2"><Mail size={15} style={{ color: RED }} /> Founder Login</div>
-                  <div className="text-xs text-neutral-500 mt-1">Log in with the email and password set up for you.</div>
-                </div>
-                <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BLACK, fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div className="w-full max-w-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ background: RED }} />
+              <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-neutral-500">Curious Ventures · Curious House</span>
+            </div>
+            <button onClick={() => { setView("adminGate"); setGateError(""); setPassInput(""); }} className="p-2 text-neutral-600 hover:text-neutral-300 transition-colors" title="Curious Ventures team"><Lock size={14} /></button>
+          </div>
+
+          <div className="flex items-start justify-between gap-6 mt-8">
+            <h1 className="text-3xl sm:text-4xl font-extrabold leading-tight">
+              <span className="text-white">Talent is leaving cities and joining networks.</span>{" "}
+              <span style={{ color: RED }}>We invest where it lands.</span>
+            </h1>
+            <div className="hidden sm:block shrink-0"><GlobeArt size={120} /></div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-8">
+            {[
+              { k: "Founders met", v: founders.filter(f => f.approved !== false).length },
+              { k: "States covered", v: statesCovered },
+              { k: "Raising right now", v: openRounds.length },
+              { k: "In open rounds", v: fmtMoney(openTarget) },
+            ].map(x => (
+              <div key={x.k} className="rounded-lg p-3.5" style={{ background: "#161616" }}>
+                <div className="text-xl font-extrabold" style={{ color: RED }}>{x.v}</div>
+                <div className="text-[10px] uppercase tracking-wide text-neutral-500 mt-1">{x.k}</div>
               </div>
+            ))}
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-2.5 mt-8">
+            <button onClick={() => { setView("founderLogin"); setLoginError(""); setLoginEmail(""); setLoginPass(""); }}
+              className="py-3 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: RED }}>
+              Founder login
             </button>
             <button onClick={() => { setView("investorLogin"); setInvLoginError(""); setInvLoginEmail(""); setInvLoginPass(""); }}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-sm flex items-center gap-2"><DollarSign size={15} style={{ color: RED }} /> Investor Login</div>
-                  <div className="text-xs text-neutral-500 mt-1">See live deal flow from inside the network states.</div>
-                </div>
-                <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
-              </div>
+              className="py-3 rounded-lg text-sm font-semibold bg-white text-neutral-900 transition-colors hover:bg-neutral-200">
+              Investor login
             </button>
             <button onClick={() => { setView("nodeLogin"); setNodeLoginError(""); setNodeLoginEmail(""); setNodeLoginPass(""); }}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-sm flex items-center gap-2"><MapPin size={15} style={{ color: RED }} /> Network State Login</div>
-                  <div className="text-xs text-neutral-500 mt-1">Trusted nodes: add leads from your community and track your pipeline.</div>
-                </div>
-                <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
-              </div>
-            </button>
-            <button onClick={() => { setView("adminGate"); setGateError(""); setPassInput(""); }}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-left hover:border-neutral-900 transition-colors group">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-sm flex items-center gap-2"><Lock size={15} style={{ color: RED }} /> Curious Ventures team</div>
-                  <div className="text-xs text-neutral-500 mt-1">Full dashboard, founder accounts and LP digest.</div>
-                </div>
-                <ArrowRight size={16} className="text-neutral-300 group-hover:text-neutral-900" />
-              </div>
+              className="py-3 rounded-lg text-sm font-semibold text-neutral-200 border border-neutral-700 transition-colors hover:border-neutral-400">
+              Network state login
             </button>
           </div>
-          <p className="text-[11px] text-neutral-400 text-center mt-6">Invite-only. We track founders we've met inside network state communities.</p>
-          <button onClick={() => setView("publicStates")} className="w-full mt-4 rounded-lg overflow-hidden text-left relative group border border-neutral-800 hover:border-neutral-600 transition-colors" style={{ background: BLACK }}>
-            <div className="flex items-center justify-between">
-              <div className="pl-5 pr-2 py-5">
-                <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: RED }}>The map of the movement</div>
-                <div className="text-white font-bold text-sm mt-1.5">Exploring network states?</div>
-                <div className="text-neutral-400 text-xs mt-1">{NETWORK_STATES.length} startup societies, live stats from our network.</div>
-                <div className="text-white text-xs font-semibold mt-3 flex items-center gap-1.5">See the map <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" /></div>
-              </div>
-              <div className="shrink-0 pr-2"><GlobeArt size={130} /></div>
-            </div>
-          </button>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-7 pt-5 border-t border-neutral-900">
+            <button onClick={() => setView("publicStates")} className="text-sm text-neutral-400 hover:text-white transition-colors">
+              Exploring network states? <span className="font-semibold" style={{ color: RED }}>See the map →</span>
+            </button>
+            <a href="https://soodgen.substack.com" target="_blank" rel="noopener noreferrer" className="text-xs text-neutral-600 hover:text-neutral-300 transition-colors">Read the thesis ↗</a>
+          </div>
         </div>
       </div>
     );
