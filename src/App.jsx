@@ -87,7 +87,7 @@ const ROUND_TYPES = ["Angel", "Pre-seed", "Seed", "Series A", "Bridge", "Grant",
 const INSTRUMENTS = ["Equity", "SAFE", "SAFT", "Convertible note", "Other"];
 
 const DEFAULT_PLACES = ["Network School (Forest City)", "Bali"];
-const ADMIN_PASSCODE = "CuriousVentures2026";
+// F-4 fix: admin passcode is stored in the DB (cv-admin-v1 record), never hardcoded here.
 
 const EMPTY_FOUNDER = {
   founderName: "", startupName: "", oneLiner: "", networkState: "",
@@ -271,7 +271,7 @@ export default function CuriousDashboard() {
   const loadAll = async () => {
     setLoading(true);
     let [f, a, p, iv, cn, nd] = await Promise.all([sGet(K_FOUNDERS, []), sGet(K_ADMIN, null), sGet(K_PLACES, null), sGet(K_INVESTORS, []), sGet(K_CONNECTS, []), sGet(K_NODES, [])]);
-    if (!a) { a = { passcode: ADMIN_PASSCODE, createdOn: new Date().toISOString() }; await sSet(K_ADMIN, a); }
+    // F-4 fix: do NOT auto-seed a passcode — admin config must be set manually in the DB.
     if (!p) { p = [...DEFAULT_PLACES]; await sSet(K_PLACES, p); }
     setFounders(f); setAdminCfg(a); setPlaces(p); setInvestors(Array.isArray(iv) ? iv : []); setConnects(Array.isArray(cn) ? cn : []); setNodes(Array.isArray(nd) ? nd : []); setLoading(false);
   };
@@ -599,7 +599,7 @@ export default function CuriousDashboard() {
   };
 
   const adminLogin = () => {
-    if (passInput === ADMIN_PASSCODE) { setView("admin"); setPassInput(""); setGateError(""); }
+    if (adminCfg && passInput && passInput === adminCfg.passcode) { setView("admin"); setPassInput(""); setGateError(""); }
     else setGateError("Wrong passcode.");
   };
   const copyText = async (text, mark) => { try { await navigator.clipboard.writeText(text); setCopied(mark); setTimeout(() => setCopied(""), 1800); } catch {} };
@@ -805,7 +805,8 @@ export default function CuriousDashboard() {
     .filter(f => f.approved === false && f.networkState === node.stateName)
     .sort((a, b) => new Date(b.addedOn) - new Date(a.addedOn)), [founders, node]);
   const nodeApprovalMsg = (n) => `Hi ${(n.contactName || "there").split(" ")[0]},\n\n${n.stateName} is live as a trusted node on Curious House.\n\nLog in at house.curiousventures.xyz — tap "Network State Login" and use the email and password you chose. From your console you can add founder leads from your community, approve founders who request access via ${n.stateName}, and track your pipeline.\n\nEvery deal you originate carries your state's name through to our investor network.\n\n— Curious Ventures`;
-  const leadInviteMsg = (f) => `Hi ${(f.founderName || "there").split(" ")[0]},\n\nYou've been added to Curious House — Curious Ventures' founder network — via ${f.origin || f.networkState}.\n\nLog in at house.curiousventures.xyz with:\nEmail: ${f.email}\nPassword: ${f.password}\n\nTakes 2 minutes to complete your profile — your progress goes in front of the LPs and investors in the network.\n\n— Curious Ventures`;
+  // F-5 fix: passwords are no longer sent in invite messages.
+const leadInviteMsg = (f) => `Hi ${(f.founderName || "there").split(" ")[0]},\n\nYou've been added to Curious House — Curious Ventures' founder network — via ${f.origin || f.networkState}.\n\nLog in at house.curiousventures.xyz with your email: ${f.email}\n\nIf you haven't set a password yet, use the one Sood shared with you directly — we'll be moving to magic-link login soon.\n\nTakes 2 minutes to complete your profile — your progress goes in front of the LPs and investors in the network.\n\n— Curious Ventures`;
 
   // Investor deal board list (approved founders with a completed profile)
   const dealFlow = useMemo(() => {
@@ -2100,7 +2101,8 @@ export default function CuriousDashboard() {
                 <p className="text-xs text-neutral-500 mt-1 mb-3">They have a login but haven't filled in their details. Nudge them.</p>
                 <div className="space-y-2">
                   {awaitingOnboarding.map(f => {
-                    const inviteMsg = `Hey ${(f.founderName || "there").split(" ")[0]}! Just a nudge to set up your Curious Ventures founder profile — log in and add your details.\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}`;
+                    // F-5 fix: password removed from nudge message
+                    const inviteMsg = `Hey ${(f.founderName || "there").split(" ")[0]}! Just a nudge to set up your Curious Ventures founder profile — log in and add your details.\n\nLink: house.curiousventures.xyz\nEmail: ${f.email}`;
                     return (
                       <div key={f.id} className="flex items-center justify-between gap-3 flex-wrap text-sm">
                         <div>
@@ -2290,9 +2292,10 @@ export default function CuriousDashboard() {
             </div>
                             {filtered.map(f => {
                   const pending = f.profileComplete === false;
+                  // F-5 fix: passwords removed from outbound messages
                   const loginMsg = pending
-                    ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}`
-                    : `Hey ${(f.founderName || "there").split(" ")[0]}! Your Curious Ventures founder profile is live. Log in to post updates anytime:\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}\n\nUse it to share milestones — that's what reaches our LPs.`;
+                    ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: house.curiousventures.xyz\nEmail: ${f.email}`
+                    : `Hey ${(f.founderName || "there").split(" ")[0]}! Your Curious Ventures founder profile is live. Log in to post updates anytime:\n\nLink: house.curiousventures.xyz\nEmail: ${f.email}\n\nUse it to share milestones — that's what reaches our LPs.`;
                   return (
                     <div key={f.id} className="bg-white border border-neutral-200 rounded-lg p-5">
                       <div className="flex items-start justify-between gap-3 flex-wrap">

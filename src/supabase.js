@@ -1,9 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Publishable key is safe to expose in client code (protected by Row Level Security).
-// These fall back to the project values so the app works even before env vars are set.
-const url = import.meta.env.VITE_SUPABASE_URL || "https://lhkklgqlgvpmylimyxdo.supabase.co";
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_1ZetxxdVnvLWSnFigurocg_mOWPds1C";
+// F-6 fix: credentials come exclusively from env vars — no hardcoded fallbacks.
+// Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel → Project Settings → Environment Variables.
+// Use the rotated anon key (rotate it in Supabase Dashboard → Settings → API first).
+const url = import.meta.env.VITE_SUPABASE_URL;
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+if (!url || !key) throw new Error("Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — set them in Vercel project settings before deploying.");
 
 const supabase = createClient(url, key);
 
