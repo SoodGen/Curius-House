@@ -3,7 +3,7 @@ import {
   Users, Globe, DollarSign, Plus, Search, Mail, CheckCircle2, Clock, Pencil,
   Trash2, X, Copy, Eye, LayoutDashboard, RefreshCw, Download,
   Image as ImageIcon, ArrowRight, Lock, ExternalLink, FileText, Smartphone, LogOut, Send, MapPin,
-  Mic, Square, Activity, Calendar, Bell, StickyNote, UserPlus, Star, Share2
+  Mic, Square, Activity, Calendar, Bell, StickyNote, UserPlus, Star, Share2, Briefcase
 } from "lucide-react";
 import { storage } from "./supabase";
 
@@ -240,6 +240,12 @@ export default function CuriousDashboard() {
   const [leadForm, setLeadForm] = useState({ founderName: "", email: "", password: "", startupName: "", oneLiner: "", metAt: "" });
   const [leadError, setLeadError] = useState("");
   const [leadSaved, setLeadSaved] = useState(false);
+  // Invested / portfolio
+  const [investPanel, setInvestPanel] = useState(null);
+  const [investDraft, setInvestDraft] = useState(null);
+  const [markDraft, setMarkDraft] = useState({});
+  const [roundPanel, setRoundPanel] = useState(null);
+  const [roundDraft, setRoundDraft] = useState({ roundName: "Seed", date: todayISO(), postMoney: "", roundSize: "", participated: false, followOnAmount: "", equityAfter: "" });
   const [search, setSearch] = useState("");
   const [adminEditingId, setAdminEditingId] = useState(null);
   const [addMode, setAddMode] = useState("full"); // full | invite
@@ -350,6 +356,82 @@ export default function CuriousDashboard() {
     ? mutateFounders(prev => prev.map(x => x.id === id ? { ...x, nodeHighlight: x.nodeHighlight === node.stateName ? "" : node.stateName } : x))
     : mutateFounders(prev => prev.map(x => x.id === id ? { ...x, pinned: !x.pinned } : x));
   const isStarred = (f) => node ? f.nodeHighlight === node.stateName : !!f.pinned;
+  // ---- Invested / portfolio ----
+  const portfolioFounders = useMemo(() => founders.filter(f => f.invested && f.approved !== false)
+    .sort((a, b) => new Date(b.investedOn || 0) - new Date(a.investedOn || 0)), [founders]);
+  const fundStats = useMemo(() => {
+    const deployed = portfolioFounders.reduce((sum, f) => sum + companyCost(f), 0);
+    const value = portfolioFounders.reduce((sum, f) => sum + companyValue(f), 0);
+    return { deployed, value, moic: deployed > 0 ? (value / deployed) : 0, count: portfolioFounders.length };
+  }, [portfolioFounders]);
+  const openInvest = (f) => {
+    setInvestDraft({
+      id: f.id,
+      deal: f.deal || { amount: "", instrument: f.currentInstrument || "SAFE", valuation: f.currentValuation || "", valuationType: "Post-money cap", discount: "", ownershipPct: f.currentEquityPct || "", roundName: f.currentRoundType || "Pre-seed", coInvestors: (f.currentInvestors || []).filter(i => i.status === "Invested" || i.status === "Term sheet").map(i => i.name).join(", "), date: todayISO() },
+      memo: f.memo || { why: "", thesisFit: "", risks: "", mustBeTrue: "", expectedOutcome: "" },
+      docs: f.docs && f.docs.length ? f.docs : [{ label: "SAFE agreement", url: "", status: "Draft" }, { label: "Side letter", url: "", status: "Draft" }],
+      checklist: f.checklist || { termSheet: false, docsSigned: false, wired: false, confirmed: false },
+    });
+    setInvestPanel(f.id);
+  };
+  const saveInvest = async () => {
+    if (!investDraft) return;
+    const d = investDraft;
+    const now = new Date().toISOString();
+    await mutateFounders(prev => prev.map(f => f.id === d.id
+      ? { ...f, invested: true, investedOn: f.investedOn || now, deal: d.deal, memo: d.memo, docs: d.docs, checklist: d.checklist,
+          currentMark: f.currentMark || d.deal.amount, fundingStatus: "Funded", lastUpdated: now,
+          checkInDate: f.checkInDate || isoDate(new Date(Date.now() + 30 * 86400000)) }
+      : f));
+    setInvestPanel(null); setInvestDraft(null);
+  };
+  const removeFromPortfolio = async (id) => {
+    await mutateFounders(prev => prev.map(f => f.id === id ? { ...f, invested: false } : f));
+  };
+  const saveMark = async (id) => {
+    const v = markDraft[id];
+    if (v === undefined) return;
+    await mutateFounders(prev => prev.map(f => f.id === id ? { ...f, currentMark: v } : f));
+    setMarkDraft(d => { const n = { ...d }; delete n[id]; return n; });
+  };
+  // Position math: cost = initial + follow-ons; value = equity after latest round x its post-money.
+  const companyCost = (f) => (Number(f.deal?.amount) || 0) + (f.newRounds || []).reduce((sum, r) => sum + (Number(r.followOnAmount) || 0), 0);
+  const companyEquity = (f) => {
+    const rs = f.newRounds || [];
+    return rs.length ? (Number(rs[rs.length - 1].equityAfter) || 0) : (Number(f.deal?.ownershipPct) || 0);
+  };
+  const companyValue = (f) => {
+    const rs = f.newRounds || [];
+    if (rs.length) {
+      const last = rs[rs.length - 1];
+      const eq = Number(last.equityAfter) || 0;
+      const val = Number(last.postMoney) || 0;
+      if (eq && val) return (eq / 100) * val;
+    }
+    return Number(f.currentMark) || Number(f.deal?.amount) || 0;
+  };
+  const openRound = (f) => {
+    setRoundDraft({ roundName: "Seed", date: todayISO(), postMoney: "", roundSize: "", participated: false, followOnAmount: "", equityAfter: "" });
+    setRoundPanel(f.id);
+  };
+  const suggestEquity = (f) => {
+    const prevEq = companyEquity(f);
+    const pm = Number(roundDraft.postMoney) || 0;
+    const rs = Number(roundDraft.roundSize) || 0;
+    if (!pm) return;
+    let eq = prevEq * (rs ? (1 - rs / pm) : 1);
+    if (roundDraft.participated && Number(roundDraft.followOnAmount)) eq += (Number(roundDraft.followOnAmount) / pm) * 100;
+    setRoundDraft(d => ({ ...d, equityAfter: eq.toFixed(2) }));
+  };
+  const saveRound = async (fid) => {
+    if (!roundDraft.postMoney || !roundDraft.equityAfter) return;
+    const entry = { ...roundDraft };
+    await mutateFounders(prev => prev.map(f => f.id === fid ? { ...f, newRounds: [...(f.newRounds || []), entry].sort((a, b) => new Date(a.date) - new Date(b.date)) } : f));
+    setRoundPanel(null);
+  };
+  const deleteRound = async (fid, idx) => {
+    await mutateFounders(prev => prev.map(f => f.id === fid ? { ...f, newRounds: (f.newRounds || []).filter((_, i) => i !== idx) } : f));
+  };
   // Shareable startup card
   const [shareFounder, setShareFounder] = useState(null);
   const [shareImg, setShareImg] = useState(null);
@@ -631,6 +713,7 @@ export default function CuriousDashboard() {
       const a = await sGet(K_NOTE(f.id), null);
       if (a) setAudioCache(p => ({ ...p, [f.id]: a }));
     }
+
   };
   const saveNote = async (id) => {
     await mutateFounders(prev => prev.map(f => f.id === id
@@ -812,7 +895,7 @@ export default function CuriousDashboard() {
     const q = invSearch.toLowerCase();
     return activeFounders
       .filter(f => f.profileComplete !== false)
-      .filter(f => f.fundingStatus === "Raising now") // investors see available deals only
+      .filter(f => f.fundingStatus === "Raising now" && !f.invested) // investors see available deals only
       .filter(f => !q || [f.startupName, f.founderName, f.networkState, f.category, f.oneLiner].some(v => (v || "").toLowerCase().includes(q)))
       .filter(f => !fCat || f.category === fCat)
       .filter(f => !fStage || f.stage === fStage)
@@ -1236,6 +1319,246 @@ export default function CuriousDashboard() {
     );
   }
 
+  const renderFounderCard = (f, opts = {}) => {
+                  const pending = f.profileComplete === false;
+                  const loginMsg = pending
+                    ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}`
+                    : `Hey ${(f.founderName || "there").split(" ")[0]}! Your Curious Ventures founder profile is live. Log in to post updates anytime:\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}\n\nUse it to share milestones — that's what reaches our LPs.`;
+                  return (
+                    <div key={f.id} className="bg-white border rounded-lg p-5" style={f.invested ? { background: "#F7FCF9", borderColor: "#BDE5CB" } : { borderColor: "#e5e5e5" }}>
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold">{f.startupName || f.founderName || "Invited founder"}</span>
+                            {pending ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Awaiting profile</span>
+                            ) : f.invested ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: "#16A34A" }}>✓ Invested</span>
+                            ) : f.fundingStatus === "Raising now" ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Raising now</span>
+                            ) : hasRaised(f) ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-900 text-white">Raised {fmtMoney(totalRaised(f))}</span>
+                            ) : (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">{f.fundingStatus}</span>
+                            )}
+                          </div>
+                          <div className="text-sm text-neutral-600 mt-1">{pending ? (f.founderName || "Hasn't logged in yet") : `${f.founderName}${f.oneLiner ? ` — ${f.oneLiner}` : ""}`}</div>
+                          <div className="text-xs text-neutral-400 mt-1">{pending ? `Invited${f.metAt ? ` · Met: ${f.metAt}` : ""}` : `${f.networkState} · ${f.category} · ${f.stage}`}</div>
+                          <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {f.email || "no login email"}{f.origin && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">via {f.origin}</span>}{f.nodeHighlight && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">★ {f.nodeHighlight}</span>}</div>
+                          {f.note && <div className="text-xs text-neutral-500 mt-1.5 italic">"{f.note}" <span className="not-italic text-neutral-400">— from their request</span></div>}
+                          {checkInInfo(f) && (
+                            <div className="mt-1.5">
+                              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${checkInInfo(f).due ? "text-white" : "bg-amber-50 text-amber-700 border border-amber-200"}`} style={checkInInfo(f).due ? { background: RED } : {}}>
+                                <Bell size={11} /> {checkInInfo(f).text}
+                              </span>
+                            </div>
+                          )}
+                          {!pending && <FundingSummary f={f} compact />}
+                          <LinkChips f={f} />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => togglePin(f.id)} className={`p-2 rounded-md hover:bg-neutral-100 ${isStarred(f) ? "text-amber-500" : "text-neutral-400 hover:text-neutral-900"}`} title={node ? (isStarred(f) ? "Highlighted to Curious Ventures — click to remove" : "Highlight this deal to Curious Ventures") : (f.pinned ? "Tracked — click to untrack" : "Track this startup")}>
+                            <Star size={15} fill={isStarred(f) ? "currentColor" : "none"} />
+                          </button>
+                          <button onClick={() => openNote(f)} className={`p-2 rounded-md hover:bg-neutral-100 relative ${(f.adminNote || f.hasAudioNote || f.checkInDate) ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-900"}`} title="Private note & check-in">
+                            <StickyNote size={15} />
+                            {f.checkInDate && f.checkInDate <= todayISO() && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: RED }} />}
+                          </button>
+                          <button onClick={() => startAdminEdit(f)} className="p-2 text-neutral-400 hover:text-neutral-900 rounded-md hover:bg-neutral-100" title="Edit"><Pencil size={15} /></button>
+                          {confirmDelete === f.id ? (
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => removeFounder(f.id)} className="text-xs px-2 py-1 rounded text-white" style={{ background: RED }}>Delete</button>
+                              <button onClick={() => setConfirmDelete(null)} className="p-2 text-neutral-400"><X size={15} /></button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmDelete(f.id)} className="p-2 text-neutral-400 hover:text-red-600 rounded-md hover:bg-neutral-100" title="Delete"><Trash2 size={15} /></button>
+                          )}
+                        </div>
+                      </div>
+
+                      {(cardImages[f.id] && cardImages[f.id].length > 0) && (
+                        <div className="mt-3 flex gap-3 flex-wrap">
+                          {cardImages[f.id].map((src, i) => <img key={i} src={src} alt="" className="h-24 rounded-md border border-neutral-200 object-cover" />)}
+                        </div>
+                      )}
+
+                      {(f.updates || []).length > 0 && (
+                        <div className="mt-3 border-l-2 pl-3 space-y-1.5" style={{ borderColor: RED }}>
+                          {(f.updates || []).slice(0, 3).map((u, i) => (
+                            <div key={i} className="text-xs">
+                              <span className="text-neutral-700">{u.text}</span>
+                              <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={u.by === "admin" ? { background: "#FDF2F3", color: RED } : { background: "#F0F0F0", color: "#666" }}>
+                                {u.by === "admin" ? "by admin" : "by founder"}
+                              </span>
+                              <span className="text-neutral-400 ml-2">· {daysAgo(u.date)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        <input value={updateDrafts[f.id] || ""} onChange={e => setUpdateDrafts(d => ({ ...d, [f.id]: e.target.value }))}
+                          onKeyDown={e => { if (e.key === "Enter") addUpdate(f.id); }}
+                          placeholder="Log an update on their behalf…"
+                          className="flex-1 min-w-[180px] bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-xs focus:outline-none focus:border-neutral-900" />
+                        <button onClick={() => addUpdate(f.id)} className="px-3 py-2 rounded-md text-xs font-medium text-white" style={{ background: BLACK }}>Log</button>
+                        <button onClick={() => copyText(loginMsg, f.id)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
+                          <Copy size={12} /> {copied === f.id ? "Copied!" : pending ? "Copy invite" : "Copy login details"}
+                        </button>
+                        <button onClick={() => openShare(f)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
+                          <Share2 size={12} /> Share card
+                        </button>
+                        {!node && !f.invested && (
+                          <button onClick={() => openInvest(f)} className="px-3 py-2 rounded-md text-xs font-semibold flex items-center gap-1.5 border" style={{ borderColor: RED, color: RED }}>
+                            <Briefcase size={12} /> Mark as invested
+                          </button>
+                        )}
+                        {!node && f.invested && (
+                          <button onClick={() => setTab("portfolio")} className="px-3 py-2 rounded-md text-xs font-semibold text-white flex items-center gap-1.5" style={{ background: "#0A0A0A" }}>
+                            <Briefcase size={12} /> In portfolio ✓
+                          </button>
+                        )}
+                      </div>
+
+                      {notePanel === f.id && (
+                        <div className="mt-4 pt-4 border-t border-neutral-100 space-y-3">
+                          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-widest uppercase text-neutral-500">
+                            <Lock size={11} /> Private note — only you see this
+                          </div>
+                          <textarea value={noteDraft[f.id] || ""} onChange={e => setNoteDraft(d => ({ ...d, [f.id]: e.target.value }))}
+                            rows={3} placeholder="Your read on this founder — conviction, gaps, next steps…"
+                            className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-neutral-900" />
+
+                          {/* Voice note */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {recordingFor === f.id ? (
+                              <button onClick={stopRecording} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md text-white" style={{ background: RED }}>
+                                <Square size={12} /> Stop recording
+                              </button>
+                            ) : (
+                              <button onClick={() => startRecording(f.id)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900">
+                                <Mic size={12} /> {f.hasAudioNote ? "Re-record voice note" : "Record voice note"}
+                              </button>
+                            )}
+                            {f.hasAudioNote && audioCache[f.id] && (
+                              <>
+                                <audio controls src={audioCache[f.id]} className="h-8" style={{ maxWidth: 200 }} />
+                                <button onClick={() => deleteAudio(f.id)} className="p-1.5 text-neutral-400 hover:text-red-600"><Trash2 size={14} /></button>
+                              </>
+                            )}
+                          </div>
+                          {recError && <p className="text-xs" style={{ color: RED }}>{recError}</p>}
+
+                          {/* Check-in */}
+                          <div className="flex items-end gap-2 flex-wrap">
+                            <div>
+                              <span className="block text-[11px] font-semibold tracking-widest uppercase text-neutral-500 mb-1.5 flex items-center gap-1"><Calendar size={11} /> Check in again on</span>
+                              <input type="date" value={checkInDraft[f.id] || ""} onChange={e => setCheckInDraft(d => ({ ...d, [f.id]: e.target.value }))}
+                                className="bg-white border border-neutral-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-neutral-900" />
+                            </div>
+                            {f.email && <a href={checkInEmail(f)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900"><Mail size={12} /> Email them</a>}
+                            <button onClick={() => markCheckedIn(f.id)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900"><CheckCircle2 size={12} /> Mark checked in</button>
+                          </div>
+                          {f.lastCheckIn && <p className="text-[11px] text-neutral-400">Last checked in {daysAgo(f.lastCheckIn)}.</p>}
+                          <div className="flex items-center gap-3 pt-1">
+                            <button onClick={() => saveNote(f.id)} className="px-4 py-2 rounded-md text-sm font-semibold text-white" style={{ background: BLACK }}>Save note</button>
+                            <button onClick={() => setNotePanel(null)} className="text-sm text-neutral-500 hover:text-neutral-900">Close</button>
+                            {noteSaved === f.id && <span className="text-sm font-medium" style={{ color: RED }}>Saved ✓</span>}
+                          </div>
+                        </div>
+                      )}
+                      {opts.portfolio && f.invested && (() => {
+                        const cost = companyCost(f);
+                        const value = companyValue(f);
+                        const moic = cost > 0 ? (value / cost) : 0;
+                        const rounds = f.newRounds || [];
+                        const eqNow = companyEquity(f);
+                        const cl = f.checklist || {};
+                        const clDone = [cl.termSheet, cl.docsSigned, cl.wired, cl.confirmed].filter(Boolean).length;
+                        return (
+                          <div className="mt-4 pt-4 border-t" style={{ borderColor: "#BDE5CB" }}>
+                            <div className="flex items-center gap-2 text-[11px] font-semibold tracking-widest uppercase" style={{ color: "#16A34A" }}>
+                              <Briefcase size={11} /> Our investment
+                            </div>
+                            <div className="flex flex-wrap items-start justify-between gap-3 mt-2">
+                              <div className="text-sm font-semibold">
+                                {fmtMoney(f.deal?.amount)} · {f.deal?.instrument || "SAFE"}{f.deal?.valuation ? ` at ${fmtMoney(f.deal.valuation)} ${f.deal?.valuationType || "cap"}` : ""}{f.deal?.ownershipPct ? ` · ${f.deal.ownershipPct}%` : ""}{f.deal?.date ? ` · ${new Date(f.deal.date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                                {f.deal?.coInvestors && <div className="text-xs text-neutral-500 font-normal mt-0.5">Alongside: {f.deal.coInvestors}</div>}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-lg font-extrabold" style={{ color: "#16A34A" }}>{moic ? `${moic.toFixed(2)}x` : "—"}</div>
+                                <div className="text-[11px] text-neutral-500 mt-0.5">In: {fmtMoney(cost)} · Now: {fmtMoney(value)}</div>
+                                <div className="text-[11px] text-neutral-400">{eqNow ? `${eqNow}% stake` : ""}{rounds.length === 0 ? " · held at entry" : ""}</div>
+                              </div>
+                            </div>
+                            {f.memo?.why && (
+                              <div className="mt-2 text-xs text-neutral-600 leading-relaxed">
+                                <span className="font-bold text-neutral-900">Why we invested:</span> {f.memo.why}
+                                {f.memo.risks && <div className="mt-1"><span className="font-bold text-neutral-900">Risks:</span> {f.memo.risks}</div>}
+                                {f.memo.mustBeTrue && <div className="mt-1"><span className="font-bold text-neutral-900">Must be true:</span> {f.memo.mustBeTrue}</div>}
+                                {f.memo.expectedOutcome && <div className="mt-1"><span className="font-bold text-neutral-900">Expected outcome:</span> {f.memo.expectedOutcome}</div>}
+                              </div>
+                            )}
+                            <div className="mt-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold tracking-widest uppercase text-neutral-500">Rounds since we invested</span>
+                                <button onClick={() => roundPanel === f.id ? setRoundPanel(null) : openRound(f)} className="text-xs font-semibold" style={{ color: "#16A34A" }}>{roundPanel === f.id ? "Cancel" : "+ Log new round"}</button>
+                              </div>
+                              {rounds.length > 0 && (
+                                <div className="mt-2 space-y-1.5">
+                                  {rounds.map((r, idx) => (
+                                    <div key={idx} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-white border border-neutral-200 rounded-md px-3 py-2">
+                                      <div>
+                                        <span className="font-bold">{r.roundName || "Round"}</span>
+                                        <span className="text-neutral-500"> · {fmtMoney(r.postMoney)} post{r.date ? ` · ${new Date(r.date + "T00:00:00").toLocaleDateString(undefined, { month: "short", year: "numeric" })}` : ""}</span>
+                                        <span className="text-neutral-500"> · {r.participated ? `defended with ${fmtMoney(r.followOnAmount)}` : "did not participate"} → {r.equityAfter}%</span>
+                                      </div>
+                                      <button onClick={() => deleteRound(f.id, idx)} className="text-neutral-300 hover:text-red-600" title="Delete round"><Trash2 size={12} /></button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {roundPanel === f.id && (
+                                <div className="mt-2 bg-white border border-neutral-200 rounded-md p-3">
+                                  <div className="grid sm:grid-cols-4 gap-2">
+                                    <input value={roundDraft.roundName} onChange={e => setRoundDraft(d => ({ ...d, roundName: e.target.value }))} placeholder="Round (Seed…)" className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 focus:outline-none focus:border-neutral-900" />
+                                    <input type="date" value={roundDraft.date} onChange={e => setRoundDraft(d => ({ ...d, date: e.target.value }))} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 focus:outline-none focus:border-neutral-900" />
+                                    <input value={roundDraft.postMoney} onChange={e => setRoundDraft(d => ({ ...d, postMoney: e.target.value }))} placeholder="Post-money valuation *" className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 focus:outline-none focus:border-neutral-900" />
+                                    <input value={roundDraft.roundSize} onChange={e => setRoundDraft(d => ({ ...d, roundSize: e.target.value }))} placeholder="Round size" className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 focus:outline-none focus:border-neutral-900" />
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                                    <button onClick={() => setRoundDraft(d => ({ ...d, participated: !d.participated }))}
+                                      className={`text-xs px-3 py-2 rounded-md border font-medium ${roundDraft.participated ? "text-white border-transparent" : "border-neutral-200 text-neutral-600"}`}
+                                      style={roundDraft.participated ? { background: "#16A34A" } : {}}>
+                                      {roundDraft.participated ? "✓ We defended (pro-rata)" : "We did not participate"}
+                                    </button>
+                                    {roundDraft.participated && <input value={roundDraft.followOnAmount} onChange={e => setRoundDraft(d => ({ ...d, followOnAmount: e.target.value }))} placeholder="Our follow-on ($)" className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 w-32 focus:outline-none focus:border-neutral-900" />}
+                                    <input value={roundDraft.equityAfter} onChange={e => setRoundDraft(d => ({ ...d, equityAfter: e.target.value }))} placeholder="Our equity after (%) *" className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 w-40 focus:outline-none focus:border-neutral-900" />
+                                    <button onClick={() => suggestEquity(f)} className="text-xs font-semibold text-neutral-500 hover:text-neutral-900">Auto-calc</button>
+                                    <button onClick={() => saveRound(f.id)} disabled={!roundDraft.postMoney || !roundDraft.equityAfter}
+                                      className={`ml-auto text-xs px-4 py-2 rounded-md font-semibold text-white ${(!roundDraft.postMoney || !roundDraft.equityAfter) ? "opacity-40" : ""}`} style={{ background: "#16A34A" }}>Save round</button>
+                                  </div>
+                                  <p className="text-[10px] text-neutral-400 mt-2">Auto-calc estimates dilution from round size ({"new % = old % x (1 - size/post) + follow-on/post"}). Override with the real number from the cap table when you have it.</p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${clDone === 4 ? "text-white" : "bg-amber-50 text-amber-700 border border-amber-200"}`} style={clDone === 4 ? { background: "#16A34A" } : {}}>Closing: {clDone}/4</span>
+                              {(f.docs || []).filter(d => d.url).map((d, i) => (
+                                <a key={i} href={d.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold flex items-center gap-1" style={{ color: "#16A34A" }}><FileText size={11} /> {d.label} ({d.status})</a>
+                              ))}
+                              <div className="ml-auto flex items-center gap-2">
+                                <button onClick={() => openInvest(f)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5 bg-white"><Pencil size={12} /> Edit deal</button>
+                                <button onClick={() => removeFromPortfolio(f.id)} className="p-2 rounded-md text-neutral-300 hover:text-red-600" title="Remove from portfolio"><Trash2 size={13} /></button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+  };
+
   if (view === "publicStates") {
     const q = nsSearch.toLowerCase();
     const dir = NETWORK_STATES
@@ -1454,6 +1777,12 @@ export default function CuriousDashboard() {
               </div>
             ))}
           </div>
+          {portfolioFounders.length > 0 && (
+            <div className="mt-4 bg-white border border-neutral-200 rounded-lg px-4 py-3 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-neutral-400">Backed by Curious Ventures:</span>
+              {portfolioFounders.map(f => <span key={f.id} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-neutral-100">{f.startupName || f.founderName}</span>)}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2 mt-6 mb-4">
             <input value={invSearch} onChange={e => setInvSearch(e.target.value)} placeholder="Search deals…"
               className="text-sm border border-neutral-200 rounded-md px-3 py-2 bg-white focus:outline-none focus:border-neutral-900 w-full sm:w-56" />
@@ -1886,6 +2215,13 @@ export default function CuriousDashboard() {
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: "#f59e0b" }}>{pinnedFounders.length}</span>
               )}
             </button>
+            {!node && <button onClick={() => setTab("portfolio")}
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "portfolio" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
+              <Briefcase size={15} /><span className="hidden sm:inline">Portfolio</span>
+              {portfolioFounders.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: "#0A0A0A" }}>{portfolioFounders.length}</span>
+              )}
+            </button>}
             {!node && <button onClick={() => setTab("nodes")}
               className={`relative flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium rounded-md transition-colors ${tab === "nodes" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
               <MapPin size={15} /><span className="hidden sm:inline">Nodes</span>
@@ -2249,13 +2585,7 @@ export default function CuriousDashboard() {
                 </div>
               </div>
             </div>
-            {filtered.length === 0 ? (
-              <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">
-                {founders.length === 0 ? "Nothing yet — add your first founder from the Add tab." : "No matches."}
-              </div>
-            ) : (
-              <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
               <select value={fCat} onChange={e => setFCat(e.target.value)} className="text-xs border border-neutral-200 rounded-md px-2.5 py-2 bg-white focus:outline-none focus:border-neutral-900">
                 <option value="">Category: all</option>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -2286,148 +2616,31 @@ export default function CuriousDashboard() {
                 <option value="raising">Sort: raising first</option>
                 <option value="az">Sort: A–Z</option>
               </select>
-              {filtersOn && <button onClick={clearFilters} className="text-xs font-semibold" style={{ color: RED }}>Clear filters</button>}
             </div>
-                            {filtered.map(f => {
-                  const pending = f.profileComplete === false;
-                  const loginMsg = pending
-                    ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}`
-                    : `Hey ${(f.founderName || "there").split(" ")[0]}! Your Curious Ventures founder profile is live. Log in to post updates anytime:\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}\n\nUse it to share milestones — that's what reaches our LPs.`;
-                  return (
-                    <div key={f.id} className="bg-white border border-neutral-200 rounded-lg p-5">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold">{f.startupName || f.founderName || "Invited founder"}</span>
-                            {pending ? (
-                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Awaiting profile</span>
-                            ) : f.fundingStatus === "Raising now" ? (
-                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: RED }}>Raising now</span>
-                            ) : hasRaised(f) ? (
-                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-900 text-white">Raised {fmtMoney(totalRaised(f))}</span>
-                            ) : (
-                              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">{f.fundingStatus}</span>
-                            )}
-                          </div>
-                          <div className="text-sm text-neutral-600 mt-1">{pending ? (f.founderName || "Hasn't logged in yet") : `${f.founderName}${f.oneLiner ? ` — ${f.oneLiner}` : ""}`}</div>
-                          <div className="text-xs text-neutral-400 mt-1">{pending ? `Invited${f.metAt ? ` · Met: ${f.metAt}` : ""}` : `${f.networkState} · ${f.category} · ${f.stage}`}</div>
-                          <div className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1"><Mail size={11} /> {f.email || "no login email"}{f.origin && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">via {f.origin}</span>}{f.nodeHighlight && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">★ {f.nodeHighlight}</span>}</div>
-                          {f.note && <div className="text-xs text-neutral-500 mt-1.5 italic">"{f.note}" <span className="not-italic text-neutral-400">— from their request</span></div>}
-                          {checkInInfo(f) && (
-                            <div className="mt-1.5">
-                              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${checkInInfo(f).due ? "text-white" : "bg-amber-50 text-amber-700 border border-amber-200"}`} style={checkInInfo(f).due ? { background: RED } : {}}>
-                                <Bell size={11} /> {checkInInfo(f).text}
-                              </span>
-                            </div>
-                          )}
-                          {!pending && <FundingSummary f={f} compact />}
-                          <LinkChips f={f} />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => togglePin(f.id)} className={`p-2 rounded-md hover:bg-neutral-100 ${isStarred(f) ? "text-amber-500" : "text-neutral-400 hover:text-neutral-900"}`} title={node ? (isStarred(f) ? "Highlighted to Curious Ventures — click to remove" : "Highlight this deal to Curious Ventures") : (f.pinned ? "Tracked — click to untrack" : "Track this startup")}>
-                            <Star size={15} fill={isStarred(f) ? "currentColor" : "none"} />
-                          </button>
-                          <button onClick={() => openNote(f)} className={`p-2 rounded-md hover:bg-neutral-100 relative ${(f.adminNote || f.hasAudioNote || f.checkInDate) ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-900"}`} title="Private note & check-in">
-                            <StickyNote size={15} />
-                            {f.checkInDate && f.checkInDate <= todayISO() && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: RED }} />}
-                          </button>
-                          <button onClick={() => startAdminEdit(f)} className="p-2 text-neutral-400 hover:text-neutral-900 rounded-md hover:bg-neutral-100" title="Edit"><Pencil size={15} /></button>
-                          {confirmDelete === f.id ? (
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => removeFounder(f.id)} className="text-xs px-2 py-1 rounded text-white" style={{ background: RED }}>Delete</button>
-                              <button onClick={() => setConfirmDelete(null)} className="p-2 text-neutral-400"><X size={15} /></button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setConfirmDelete(f.id)} className="p-2 text-neutral-400 hover:text-red-600 rounded-md hover:bg-neutral-100" title="Delete"><Trash2 size={15} /></button>
-                          )}
-                        </div>
-                      </div>
-
-                      {(cardImages[f.id] && cardImages[f.id].length > 0) && (
-                        <div className="mt-3 flex gap-3 flex-wrap">
-                          {cardImages[f.id].map((src, i) => <img key={i} src={src} alt="" className="h-24 rounded-md border border-neutral-200 object-cover" />)}
-                        </div>
-                      )}
-
-                      {(f.updates || []).length > 0 && (
-                        <div className="mt-3 border-l-2 pl-3 space-y-1.5" style={{ borderColor: RED }}>
-                          {(f.updates || []).slice(0, 3).map((u, i) => (
-                            <div key={i} className="text-xs">
-                              <span className="text-neutral-700">{u.text}</span>
-                              <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={u.by === "admin" ? { background: "#FDF2F3", color: RED } : { background: "#F0F0F0", color: "#666" }}>
-                                {u.by === "admin" ? "by admin" : "by founder"}
-                              </span>
-                              <span className="text-neutral-400 ml-2">· {daysAgo(u.date)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="mt-3 flex items-center gap-2 flex-wrap">
-                        <input value={updateDrafts[f.id] || ""} onChange={e => setUpdateDrafts(d => ({ ...d, [f.id]: e.target.value }))}
-                          onKeyDown={e => { if (e.key === "Enter") addUpdate(f.id); }}
-                          placeholder="Log an update on their behalf…"
-                          className="flex-1 min-w-[180px] bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-xs focus:outline-none focus:border-neutral-900" />
-                        <button onClick={() => addUpdate(f.id)} className="px-3 py-2 rounded-md text-xs font-medium text-white" style={{ background: BLACK }}>Log</button>
-                        <button onClick={() => copyText(loginMsg, f.id)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
-                          <Copy size={12} /> {copied === f.id ? "Copied!" : pending ? "Copy invite" : "Copy login details"}
-                        </button>
-                        <button onClick={() => openShare(f)} className="px-3 py-2 rounded-md text-xs font-medium border border-neutral-200 hover:border-neutral-900 flex items-center gap-1.5">
-                          <Share2 size={12} /> Share card
-                        </button>
-                      </div>
-
-                      {notePanel === f.id && (
-                        <div className="mt-4 pt-4 border-t border-neutral-100 space-y-3">
-                          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-widest uppercase text-neutral-500">
-                            <Lock size={11} /> Private note — only you see this
-                          </div>
-                          <textarea value={noteDraft[f.id] || ""} onChange={e => setNoteDraft(d => ({ ...d, [f.id]: e.target.value }))}
-                            rows={3} placeholder="Your read on this founder — conviction, gaps, next steps…"
-                            className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-neutral-900" />
-
-                          {/* Voice note */}
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {recordingFor === f.id ? (
-                              <button onClick={stopRecording} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md text-white" style={{ background: RED }}>
-                                <Square size={12} /> Stop recording
-                              </button>
-                            ) : (
-                              <button onClick={() => startRecording(f.id)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900">
-                                <Mic size={12} /> {f.hasAudioNote ? "Re-record voice note" : "Record voice note"}
-                              </button>
-                            )}
-                            {f.hasAudioNote && audioCache[f.id] && (
-                              <>
-                                <audio controls src={audioCache[f.id]} className="h-8" style={{ maxWidth: 200 }} />
-                                <button onClick={() => deleteAudio(f.id)} className="p-1.5 text-neutral-400 hover:text-red-600"><Trash2 size={14} /></button>
-                              </>
-                            )}
-                          </div>
-                          {recError && <p className="text-xs" style={{ color: RED }}>{recError}</p>}
-
-                          {/* Check-in */}
-                          <div className="flex items-end gap-2 flex-wrap">
-                            <div>
-                              <span className="block text-[11px] font-semibold tracking-widest uppercase text-neutral-500 mb-1.5 flex items-center gap-1"><Calendar size={11} /> Check in again on</span>
-                              <input type="date" value={checkInDraft[f.id] || ""} onChange={e => setCheckInDraft(d => ({ ...d, [f.id]: e.target.value }))}
-                                className="bg-white border border-neutral-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-neutral-900" />
-                            </div>
-                            {f.email && <a href={checkInEmail(f)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900"><Mail size={12} /> Email them</a>}
-                            <button onClick={() => markCheckedIn(f.id)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-neutral-200 hover:border-neutral-900"><CheckCircle2 size={12} /> Mark checked in</button>
-                          </div>
-                          {f.lastCheckIn && <p className="text-[11px] text-neutral-400">Last checked in {daysAgo(f.lastCheckIn)}.</p>}
-
-                          <div className="flex items-center gap-3 pt-1">
-                            <button onClick={() => saveNote(f.id)} className="px-4 py-2 rounded-md text-sm font-semibold text-white" style={{ background: BLACK }}>Save note</button>
-                            <button onClick={() => setNotePanel(null)} className="text-sm text-neutral-500 hover:text-neutral-900">Close</button>
-                            {noteSaved === f.id && <span className="text-sm font-medium" style={{ color: RED }}>Saved ✓</span>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+            {(filtersOn || search) && (
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <span className="text-[11px] uppercase tracking-wide text-neutral-400 font-semibold">Active:</span>
+                {search && <button onClick={() => setSearch("")} className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white flex items-center gap-1.5">"{search}" <X size={11} /></button>}
+                {fCat && <button onClick={() => setFCat("")} className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white flex items-center gap-1.5">{fCat} <X size={11} /></button>}
+                {fStage && <button onClick={() => setFStage("")} className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white flex items-center gap-1.5">{fStage} <X size={11} /></button>}
+                {fFund && <button onClick={() => setFFund("")} className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white flex items-center gap-1.5">{fFund} <X size={11} /></button>}
+                {fPlace && <button onClick={() => setFPlace("")} className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white flex items-center gap-1.5">{fPlace} <X size={11} /></button>}
+                {fOrigin && <button onClick={() => setFOrigin("")} className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white flex items-center gap-1.5">{fOrigin === "__direct" ? "Direct" : fOrigin === "__highlighted" ? "★ Highlighted" : `via ${fOrigin}`} <X size={11} /></button>}
+                <button onClick={() => { clearFilters(); setSearch(""); }} className="text-xs font-bold" style={{ color: RED }}>Clear all — show all founders</button>
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">
+                {activeFounders.length === 0 ? "Nothing yet — add your first founder from the Add tab." : (
+                  <>
+                    No founders match these filters.
+                    <button onClick={() => { clearFilters(); setSearch(""); }} className="block mx-auto mt-3 text-sm font-bold" style={{ color: RED }}>Clear all filters — show all {activeFounders.length} founders</button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                            {filtered.map(f => renderFounderCard(f))}
               </div>
             )}
           </div>
@@ -2644,6 +2857,37 @@ export default function CuriousDashboard() {
           </div>
         )}
 
+        {!node && tab === "portfolio" && (
+          <div>
+            <div className="mb-5">
+              <h2 className="text-xl font-bold tracking-tight">Portfolio ({fundStats.count})</h2>
+              <p className="text-sm text-neutral-500 mt-0.5">Companies Curious Ventures has invested in — deal terms, memos, documents, and marks.</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              {[
+                { k: "Deployed", v: fmtMoney(fundStats.deployed) },
+                { k: "Portfolio value", v: fmtMoney(fundStats.value) },
+                { k: "Blended MOIC", v: fundStats.moic ? `${fundStats.moic.toFixed(2)}x` : "—" },
+                { k: "Companies", v: fundStats.count },
+              ].map(x => (
+                <div key={x.k} className="bg-white border border-neutral-200 rounded-lg p-4">
+                  <div className="text-xl font-extrabold" style={{ color: RED }}>{x.v}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-neutral-400 mt-0.5">{x.k}</div>
+                </div>
+              ))}
+            </div>
+            {portfolioFounders.length === 0 ? (
+              <div className="bg-white border border-dashed border-neutral-300 rounded-lg p-12 text-center text-sm text-neutral-500">
+                No investments yet. When you close a deal, open the founder's card and tap "Mark as invested".
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {portfolioFounders.map(f => renderFounderCard(f, { portfolio: true }))}
+              </div>
+            )}
+          </div>
+        )}
+
         {!node && tab === "nodes" && (
           <div>
             <div className="mb-5">
@@ -2797,6 +3041,100 @@ export default function CuriousDashboard() {
       <footer className="max-w-6xl mx-auto px-5 py-6 text-[11px] text-neutral-400 flex items-center gap-1.5">
         <Eye size={11} /> Shared workspace — founder data and logins live in shared storage.
       </footer>
+
+      {investPanel && investDraft && (() => {
+        const f = founders.find(x => x.id === investPanel);
+        if (!f) return null;
+        const iL = "text-[11px] font-semibold tracking-widest uppercase text-neutral-500";
+        const iI = "w-full border border-neutral-200 rounded-md px-3 py-2 text-sm mt-1 focus:outline-none focus:border-neutral-900";
+        const D = investDraft;
+        const set = (patch) => setInvestDraft({ ...D, ...patch });
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-auto" onClick={() => { setInvestPanel(null); setInvestDraft(null); }}>
+            <div className="bg-white rounded-2xl p-6 max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold tracking-[0.15em] uppercase" style={{ color: RED }}>Investment record</div>
+                  <h2 className="text-lg font-bold mt-0.5">{f.startupName || f.founderName}</h2>
+                </div>
+                <button onClick={() => { setInvestPanel(null); setInvestDraft(null); }} className="p-1 text-neutral-400 hover:text-neutral-900"><X size={18} /></button>
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-bold flex items-center gap-2"><DollarSign size={14} style={{ color: RED }} /> The deal</div>
+                <div className="grid sm:grid-cols-3 gap-3 mt-3">
+                  <div><span className={iL}>Amount (USD) *</span><input className={iI} value={D.deal.amount} onChange={e => set({ deal: { ...D.deal, amount: e.target.value } })} placeholder="100000" /></div>
+                  <div><span className={iL}>Instrument</span>
+                    <select className={iI} value={D.deal.instrument} onChange={e => set({ deal: { ...D.deal, instrument: e.target.value } })}>
+                      {["SAFE", "Equity", "SAFT", "Convertible note", "Other"].map(x => <option key={x}>{x}</option>)}
+                    </select></div>
+                  <div><span className={iL}>Round</span><input className={iI} value={D.deal.roundName} onChange={e => set({ deal: { ...D.deal, roundName: e.target.value } })} placeholder="Pre-seed" /></div>
+                  <div><span className={iL}>Valuation / cap</span><input className={iI} value={D.deal.valuation} onChange={e => set({ deal: { ...D.deal, valuation: e.target.value } })} placeholder="10000000" /></div>
+                  <div><span className={iL}>Valuation type</span>
+                    <select className={iI} value={D.deal.valuationType} onChange={e => set({ deal: { ...D.deal, valuationType: e.target.value } })}>
+                      {["Post-money cap", "Pre-money", "Post-money"].map(x => <option key={x}>{x}</option>)}
+                    </select></div>
+                  <div><span className={iL}>Ownership %</span><input className={iI} value={D.deal.ownershipPct} onChange={e => set({ deal: { ...D.deal, ownershipPct: e.target.value } })} placeholder="1.0" /></div>
+                  <div><span className={iL}>Discount %</span><input className={iI} value={D.deal.discount} onChange={e => set({ deal: { ...D.deal, discount: e.target.value } })} placeholder="0" /></div>
+                  <div><span className={iL}>Date</span><input type="date" className={iI} value={D.deal.date} onChange={e => set({ deal: { ...D.deal, date: e.target.value } })} /></div>
+                  <div><span className={iL}>Co-investors</span><input className={iI} value={D.deal.coInvestors} onChange={e => set({ deal: { ...D.deal, coInvestors: e.target.value } })} placeholder="Polaris, angels" /></div>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <div className="text-sm font-bold flex items-center gap-2"><StickyNote size={14} style={{ color: RED }} /> Investment memo <span className="text-[10px] font-normal text-neutral-400 normal-case">(private to you)</span></div>
+                <div className="space-y-3 mt-3">
+                  <div><span className={iL}>Why we're investing *</span><textarea rows={2} className={iI} value={D.memo.why} onChange={e => set({ memo: { ...D.memo, why: e.target.value } })} placeholder="The core reason this deal, this founder, now." /></div>
+                  <div><span className={iL}>Thesis fit</span><input className={iI} value={D.memo.thesisFit} onChange={e => set({ memo: { ...D.memo, thesisFit: e.target.value } })} placeholder="Which Behavioral Fork pillar this rides" /></div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div><span className={iL}>Key risks</span><textarea rows={2} className={iI} value={D.memo.risks} onChange={e => set({ memo: { ...D.memo, risks: e.target.value } })} placeholder="What kills this" /></div>
+                    <div><span className={iL}>What must be true in 18 months</span><textarea rows={2} className={iI} value={D.memo.mustBeTrue} onChange={e => set({ memo: { ...D.memo, mustBeTrue: e.target.value } })} placeholder="The milestones that validate the bet" /></div>
+                  </div>
+                  <div><span className={iL}>Expected outcome</span><input className={iI} value={D.memo.expectedOutcome} onChange={e => set({ memo: { ...D.memo, expectedOutcome: e.target.value } })} placeholder="e.g. 10–20x on a $50M+ outcome" /></div>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <div className="text-sm font-bold flex items-center gap-2"><FileText size={14} style={{ color: RED }} /> Documents <span className="text-[10px] font-normal text-neutral-400 normal-case">(links to DocuSign / Drive)</span></div>
+                <div className="space-y-2 mt-3">
+                  {D.docs.map((d, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-2 items-center">
+                      <input className="border border-neutral-200 rounded-md px-3 py-2 text-xs focus:outline-none focus:border-neutral-900" value={d.label} onChange={e => set({ docs: D.docs.map((x, j) => j === i ? { ...x, label: e.target.value } : x) })} placeholder="Document name" />
+                      <input className="border border-neutral-200 rounded-md px-3 py-2 text-xs focus:outline-none focus:border-neutral-900" value={d.url} onChange={e => set({ docs: D.docs.map((x, j) => j === i ? { ...x, url: e.target.value } : x) })} placeholder="https:// link to the doc" />
+                      <select className="border border-neutral-200 rounded-md px-2 py-2 text-xs focus:outline-none focus:border-neutral-900" value={d.status} onChange={e => set({ docs: D.docs.map((x, j) => j === i ? { ...x, status: e.target.value } : x) })}>
+                        {["Draft", "Sent", "Signed"].map(x => <option key={x}>{x}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                  <button onClick={() => set({ docs: [...D.docs, { label: "", url: "", status: "Draft" }] })} className="text-xs font-semibold" style={{ color: RED }}>+ Add document</button>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <div className="text-sm font-bold flex items-center gap-2"><CheckCircle2 size={14} style={{ color: RED }} /> Closing checklist</div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {[["termSheet", "Term sheet sent"], ["docsSigned", "Docs signed"], ["wired", "Money wired"], ["confirmed", "Confirmation received"]].map(([k, lbl]) => (
+                    <button key={k} onClick={() => set({ checklist: { ...D.checklist, [k]: !D.checklist[k] } })}
+                      className={`text-xs px-3 py-2 rounded-md border font-medium ${D.checklist[k] ? "text-white border-transparent" : "border-neutral-200 text-neutral-600 hover:border-neutral-900"}`}
+                      style={D.checklist[k] ? { background: "#0A0A0A" } : {}}>
+                      {D.checklist[k] ? "✓ " : ""}{lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 mt-7 pt-4 border-t border-neutral-100">
+                <button onClick={saveInvest} disabled={!D.deal.amount || !D.memo.why}
+                  className={`px-5 py-2.5 rounded-md text-sm font-semibold text-white ${(!D.deal.amount || !D.memo.why) ? "opacity-40" : ""}`} style={{ background: RED }}>
+                  {f.invested ? "Save changes" : "Confirm investment"}
+                </button>
+                <button onClick={() => { setInvestPanel(null); setInvestDraft(null); }} className="text-sm text-neutral-500 hover:text-neutral-900">Cancel</button>
+                {(!D.deal.amount || !D.memo.why) && <span className="text-[11px] text-neutral-400">Amount and "why" are required — future you will thank you.</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {shareFounder && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-auto" onClick={() => setShareFounder(null)}>
