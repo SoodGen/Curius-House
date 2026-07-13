@@ -433,12 +433,12 @@ function CuriousDashboard() {
     setMarkDraft(d => { const n = { ...d }; delete n[id]; return n; });
   };
   // Position math: cost = initial + follow-ons; value = equity after latest round x its post-money.
-  const companyCost = (f) => num(f.deal?.amount) + (f.newRounds || []).reduce((sum, r) => sum + num(r.followOnAmount), 0);
-  const companyEquity = (f) => {
+  function companyCost(f) { return num(f.deal?.amount) + (f.newRounds || []).reduce((sum, r) => sum + num(r.followOnAmount), 0); }
+  function companyEquity(f) {
     const rs = f.newRounds || [];
     return rs.length ? num(rs[rs.length - 1].equityAfter) : num(f.deal?.ownershipPct);
-  };
-  const companyValue = (f) => {
+  }
+  function companyValue(f) {
     const rs = f.newRounds || [];
     if (rs.length) {
       const last = rs[rs.length - 1];
@@ -447,7 +447,7 @@ function CuriousDashboard() {
       if (eq && val) return (eq / 100) * val;
     }
     return num(f.currentMark) || num(f.deal?.amount);
-  };
+  }
   const openRound = (f) => {
     setRoundDraft({ roundName: "Seed", date: todayISO(), postMoney: "", roundSize: "", participated: false, followOnAmount: "", equityAfter: "" });
     setRoundPanel(f.id);
