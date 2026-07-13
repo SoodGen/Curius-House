@@ -100,8 +100,22 @@ const EMPTY_FOUNDER = {
   adminNote: "", hasAudioNote: false, checkInDate: "", lastCheckIn: "", completedOn: ""
 };
 
+// Parse "20,000,000", "$1.5M"-style strings safely into numbers.
+const num = (x) => {
+  if (x === null || x === undefined || x === "") return 0;
+  const str = String(x).trim().replace(/[$,\s]/g, "");
+  const mult = /m$/i.test(str) ? 1000000 : /k$/i.test(str) ? 1000 : 1;
+  const v = parseFloat(str.replace(/[mk]$/i, ""));
+  return isNaN(v) ? 0 : v * mult;
+};
+// Safe date label: returns "" instead of "Invalid Date".
+const safeDate = (d, opts) => {
+  if (!d) return "";
+  const dt = new Date(String(d).includes("T") ? d : d + "T00:00:00");
+  return isNaN(dt.getTime()) ? "" : dt.toLocaleDateString(undefined, opts || { month: "short", day: "numeric", year: "numeric" });
+};
 const fmtMoney = (n) => {
-  const v = Number(n) || 0;
+  const v = num(n);
   if (v >= 1000000) return `$${(v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1)}M`;
   if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
   return v > 0 ? `$${v}` : "$0";
@@ -186,7 +200,31 @@ const sGet = async (key, fallback) => {
 };
 const sSet = async (key, val) => { try { await storage.set(key, JSON.stringify(val)); } catch (e) { console.error(e); } };
 
-export default function CuriousDashboard() {
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FAFAFA", fontFamily: "'Inter', system-ui, sans-serif", padding: 24 }}>
+          <div style={{ maxWidth: 480, background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#E63946", textTransform: "uppercase", letterSpacing: "0.1em" }}>Something broke</div>
+            <p style={{ fontSize: 14, color: "#444", marginTop: 8 }}>Your data is safe in the database — this is only a display crash. Screenshot the message below and send it to get it fixed, then reload.</p>
+            <pre style={{ fontSize: 11, background: "#f6f6f6", padding: 12, borderRadius: 8, marginTop: 10, whiteSpace: "pre-wrap", color: "#666" }}>{String(this.state.error && (this.state.error.message || this.state.error))}</pre>
+            <button onClick={() => window.location.reload()} style={{ marginTop: 12, padding: "10px 18px", borderRadius: 8, border: 0, background: "#0A0A0A", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Reload</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function App() {
+  return <ErrorBoundary><CuriousDashboard /></ErrorBoundary>;
+}
+
+function CuriousDashboard() {
   const [view, setView] = useState("landing");
   const [founders, setFounders] = useState([]);
   const [adminCfg, setAdminCfg] = useState(undefined);
@@ -395,20 +433,20 @@ export default function CuriousDashboard() {
     setMarkDraft(d => { const n = { ...d }; delete n[id]; return n; });
   };
   // Position math: cost = initial + follow-ons; value = equity after latest round x its post-money.
-  const companyCost = (f) => (Number(f.deal?.amount) || 0) + (f.newRounds || []).reduce((sum, r) => sum + (Number(r.followOnAmount) || 0), 0);
+  const companyCost = (f) => num(f.deal?.amount) + (f.newRounds || []).reduce((sum, r) => sum + num(r.followOnAmount), 0);
   const companyEquity = (f) => {
     const rs = f.newRounds || [];
-    return rs.length ? (Number(rs[rs.length - 1].equityAfter) || 0) : (Number(f.deal?.ownershipPct) || 0);
+    return rs.length ? num(rs[rs.length - 1].equityAfter) : num(f.deal?.ownershipPct);
   };
   const companyValue = (f) => {
     const rs = f.newRounds || [];
     if (rs.length) {
       const last = rs[rs.length - 1];
-      const eq = Number(last.equityAfter) || 0;
-      const val = Number(last.postMoney) || 0;
+      const eq = num(last.equityAfter);
+      const val = num(last.postMoney);
       if (eq && val) return (eq / 100) * val;
     }
-    return Number(f.currentMark) || Number(f.deal?.amount) || 0;
+    return num(f.currentMark) || num(f.deal?.amount);
   };
   const openRound = (f) => {
     setRoundDraft({ roundName: "Seed", date: todayISO(), postMoney: "", roundSize: "", participated: false, followOnAmount: "", equityAfter: "" });
@@ -416,11 +454,11 @@ export default function CuriousDashboard() {
   };
   const suggestEquity = (f) => {
     const prevEq = companyEquity(f);
-    const pm = Number(roundDraft.postMoney) || 0;
-    const rs = Number(roundDraft.roundSize) || 0;
+    const pm = num(roundDraft.postMoney);
+    const rs = num(roundDraft.roundSize);
     if (!pm) return;
     let eq = prevEq * (rs ? (1 - rs / pm) : 1);
-    if (roundDraft.participated && Number(roundDraft.followOnAmount)) eq += (Number(roundDraft.followOnAmount) / pm) * 100;
+    if (roundDraft.participated && num(roundDraft.followOnAmount)) eq += (num(roundDraft.followOnAmount) / pm) * 100;
     setRoundDraft(d => ({ ...d, equityAfter: eq.toFixed(2) }));
   };
   const saveRound = async (fid) => {
@@ -1066,7 +1104,7 @@ export default function CuriousDashboard() {
                   <span className="font-semibold" style={{ color: RED }}>{fmtMoney(remainingToRaise(f))} left of {fmtMoney(f.currentTarget)}</span>
                 </div>
                 <div className="h-1.5 bg-white rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${Number(f.currentTarget) > 0 ? Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100) : 0}%`, background: RED }} />
+                  <div className="h-full rounded-full" style={{ width: `${num(f.currentTarget) > 0 ? Math.min(100, (committedAmount(f) / num(f.currentTarget)) * 100) : 0}%`, background: RED }} />
                 </div>
               </div>
             )}
@@ -1482,7 +1520,7 @@ export default function CuriousDashboard() {
                             </div>
                             <div className="flex flex-wrap items-start justify-between gap-3 mt-2">
                               <div className="text-sm font-semibold">
-                                {fmtMoney(f.deal?.amount)} · {f.deal?.instrument || "SAFE"}{f.deal?.valuation ? ` at ${fmtMoney(f.deal.valuation)} ${f.deal?.valuationType || "cap"}` : ""}{f.deal?.ownershipPct ? ` · ${f.deal.ownershipPct}%` : ""}{f.deal?.date ? ` · ${new Date(f.deal.date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                                {fmtMoney(f.deal?.amount)} · {f.deal?.instrument || "SAFE"}{f.deal?.valuation ? ` at ${fmtMoney(f.deal.valuation)} ${f.deal?.valuationType || "cap"}` : ""}{f.deal?.ownershipPct ? ` · ${f.deal.ownershipPct}%` : ""}{safeDate(f.deal?.date) ? ` · ${safeDate(f.deal.date)}` : ""}
                                 {f.deal?.coInvestors && <div className="text-xs text-neutral-500 font-normal mt-0.5">Alongside: {f.deal.coInvestors}</div>}
                               </div>
                               <div className="text-right">
@@ -1510,7 +1548,7 @@ export default function CuriousDashboard() {
                                     <div key={idx} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-white border border-neutral-200 rounded-md px-3 py-2">
                                       <div>
                                         <span className="font-bold">{r.roundName || "Round"}</span>
-                                        <span className="text-neutral-500"> · {fmtMoney(r.postMoney)} post{r.date ? ` · ${new Date(r.date + "T00:00:00").toLocaleDateString(undefined, { month: "short", year: "numeric" })}` : ""}</span>
+                                        <span className="text-neutral-500"> · {fmtMoney(r.postMoney)} post{safeDate(r.date, { month: "short", year: "numeric" }) ? ` · ${safeDate(r.date, { month: "short", year: "numeric" })}` : ""}</span>
                                         <span className="text-neutral-500"> · {r.participated ? `defended with ${fmtMoney(r.followOnAmount)}` : "did not participate"} → {r.equityAfter}%</span>
                                       </div>
                                       <button onClick={() => deleteRound(f.id, idx)} className="text-neutral-300 hover:text-red-600" title="Delete round"><Trash2 size={12} /></button>
@@ -2314,7 +2352,7 @@ export default function CuriousDashboard() {
                                   <span className="font-semibold" style={{ color: RED }}>{fmtMoney(remainingToRaise(f))} left</span>
                                 </div>
                                 <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
-                                  <div className="h-full rounded-full" style={{ width: `${Number(f.currentTarget) > 0 ? Math.min(100, (committedAmount(f) / Number(f.currentTarget)) * 100) : 0}%`, background: RED }} />
+                                  <div className="h-full rounded-full" style={{ width: `${num(f.currentTarget) > 0 ? Math.min(100, (committedAmount(f) / num(f.currentTarget)) * 100) : 0}%`, background: RED }} />
                                 </div>
                               </div>
                             )}
