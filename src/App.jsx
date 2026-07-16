@@ -1359,9 +1359,10 @@ function CuriousDashboard() {
 
   const renderFounderCard = (f, opts = {}) => {
                   const pending = f.profileComplete === false;
+                  // F-5 fix: passwords removed from outbound messages
                   const loginMsg = pending
-                    ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}`
-                    : `Hey ${(f.founderName || "there").split(" ")[0]}! Your Curious Ventures founder profile is live. Log in to post updates anytime:\n\nLink: [paste this dashboard's link]\nEmail: ${f.email}\nPassword: ${f.password}\n\nUse it to share milestones — that's what reaches our LPs.`;
+                    ? `Hey ${(f.founderName || "there").split(" ")[0]}! Great meeting you. Add your startup to the Curious Ventures founder tracker — log in and fill in your details (takes 2 min). You can post updates anytime after.\n\nLink: house.curiousventures.xyz\nEmail: ${f.email}`
+                    : `Hey ${(f.founderName || "there").split(" ")[0]}! Your Curious Ventures founder profile is live. Log in to post updates anytime:\n\nLink: house.curiousventures.xyz\nEmail: ${f.email}\n\nUse it to share milestones — that's what reaches our LPs.`;
                   return (
                     <div key={f.id} className="bg-white border rounded-lg p-5" style={f.invested ? { background: "#F7FCF9", borderColor: "#BDE5CB" } : { borderColor: "#e5e5e5" }}>
                       <div className="flex items-start justify-between gap-3 flex-wrap">
